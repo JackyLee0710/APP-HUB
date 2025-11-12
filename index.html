@@ -1,492 +1,104 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>面試前準備</title>
-    <!-- 導入 Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 使用 Inter 字體 -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <title>我的 PWA 應用程式啟動器</title>
+    
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#2196F3">
+    
     <style>
-        /* 確保全域使用 Inter 字體並加入平滑滾動 */
-        body {
-            font-family: 'Inter', sans-serif;
-            scroll-behavior: smooth;
-            background-color: #f7f9fb;
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        h1 { color: #333; text-align: center; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .app-list a { display: block; padding: 15px; margin-bottom: 10px; background-color: #e3f2fd; color: #1565C0; text-decoration: none; border-radius: 5px; transition: background-color 0.3s; }
+        .app-list a:hover { background-color: #bbdefb; }
+        
+        /* 自訂安裝按鈕樣式 */
+        #installButton {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 20px auto 10px;
+            display: none; /* 預設隱藏 */
+            font-size: 16px;
+            text-align: center;
         }
-        /* 自定義滾動條 (可選，提供更好的視覺效果) */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #d1d5db;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
-        }
-        /* 隱藏原生 textarea 焦點外框 */
-        textarea:focus {
-            outline: none;
-            box-shadow: none;
+        /* 修正：當PWA以App模式運行時，隱藏按鈕 */
+        @media all and (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+            #installButton {
+                display: none !important; 
+            }
         }
     </style>
 </head>
-<body class="min-h-screen">
-    <div id="app" class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8">
-        <header class="mb-6 flex justify-between items-center bg-white p-4 rounded-xl shadow-lg">
-            <h1 class="text-3xl font-bold text-gray-800">面試小抄</h1>
-            <div class="flex items-center space-x-4">
-                <!-- 由於使用 LocalStorage，此處改為顯示儲存狀態 -->
-                <span id="user-id-display" class="text-sm text-gray-500 hidden sm:block truncate max-w-xs">資料儲存於瀏覽器</span>
-                <!-- 模式切換按鈕 -->
-                <button id="mode-toggle" class="px-4 py-2 text-sm rounded-full font-semibold transition duration-200 shadow-md">
-                    切換至編輯模式
-                </button>
+<body>
+    <div class="container">
+        <h1>🛠️ 我的所有 PWA 工具</h1>
+        
+        <button id="installButton" style="display: none;">
+            點我安裝 App 到桌面
+        </button>
+
+        <h2>功能清單：</h2>
+        <div class="app-list">
+            <a href="./tra-search/index.html">🚆 台鐵時刻表查詢</a>
+            <a href="./cheatsheet/index.html">📊 面試準備</a>
             </div>
-        </header>
-
-        <!-- 模式切換/儲存成功通知 -->
-        <div id="message-box" class="fixed top-20 right-4 p-3 rounded-lg text-white font-medium shadow-xl transition-opacity duration-300 opacity-0 z-50"></div>
-
-        <!-- Tab 導航列 -->
-        <nav id="tab-navigation" class="sticky top-0 z-10 bg-white p-2 rounded-xl shadow-lg mb-6">
-            <div class="flex space-x-2 sm:space-x-4">
-                <!-- 自我介紹 Tab -->
-                <button data-tab="intro" class="tab-button w-full sm:w-auto px-3 py-2 text-sm font-medium rounded-lg transition duration-150">
-                    自我介紹
-                </button>
-                <!-- 潛在問答 Tab -->
-                <button data-tab="qa" class="tab-button w-full sm:w-auto px-3 py-2 text-sm font-medium rounded-lg transition duration-150">
-                    潛在問答
-                </button>
-                <!-- 職位問題 Tab -->
-                <button data-tab="position" class="tab-button w-full sm:w-auto px-3 py-2 text-sm font-medium rounded-lg transition duration-150">
-                    對職位的提問
-                </button>
-            </div>
-        </nav>
-
-        <main id="content-container" class="bg-white p-6 rounded-xl shadow-lg min-h-[60vh]">
-            <!-- 內容將由 JavaScript 動態渲染到此處 -->
-            <div id="intro-content" class="tab-content" data-tab="intro"></div>
-            <div id="qa-content" class="tab-content hidden" data-tab="qa"></div>
-            <div id="position-content" class="tab-content hidden" data-tab="position"></div>
-
-            <!-- 載入指示器 -->
-            <div id="loading-indicator" class="flex justify-center items-center h-48 text-gray-500">
-                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                正在載入資料...
-            </div>
-        </main>
     </div>
 
-    <!-- 自定義確認彈窗 (取代 window.confirm/alert) -->
-    <div id="custom-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 z-50 flex items-center justify-center transition-opacity duration-300">
-        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-100">
-            <p id="modal-message" class="text-gray-700 mb-6 text-lg font-medium">確定要執行此操作嗎？</p>
-            <div class="flex justify-end space-x-3">
-                <button id="modal-cancel" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition duration-150">取消</button>
-                <button id="modal-confirm" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition duration-150">確定</button>
-            </div>
-        </div>
-    </div>
+    <script>
+        let deferredPrompt;
+        const installButton = document.getElementById('installButton');
 
-    <script type="module">
-        // 應用程式狀態 (不依賴 Firebase)
-        let currentMode = 'read'; // 'read' 或 'edit'
-        let activeTab = 'intro'; // 'intro', 'qa', 'position'
-        
-        // 預設資料 (如果 LocalStorage 中沒有找到資料，則使用此預設值)
-        let cheatSheetData = {
-            intro: "您好，面試官。我是 [您的姓名]，一位在 [領域] 擁有 [X] 年經驗的 [職稱]。我特別擅長 [技能 A] 和 [技能 B]。過去在 [公司] 的專案中，我曾通過 [您的行動] 幫助團隊實現了 [具體成果，例如：效率提升 30%]。我之所以對貴公司這個 [職位名稱] 充滿熱情，是因為 [原因]，我深信我的經驗與貴公司的發展目標高度契合。",
-            qas: [
-                { question: "請介紹一下您最具挑戰性的專案。", reply: "那是一個關於 [專案主題] 的專案。主要的挑戰在於 [困難點 A] 和 [困難點 B]。我採取的解決方案是 [您的行動]，最終的結果是 [成果]。從中我學到了 [教訓]。" },
-                { question: "您的職涯目標是什麼？", reply: "我的中期目標是在接下來三年內，成為 [職位/領域] 的專家，並能夠帶領小型團隊完成高複雜度的專案。長期來看，我希望我的工作能對 [行業/社會] 產生實質性的影響。" }
-            ],
-            positionQuestions: [
-                "貴公司如何評估這個職位的成功？主要的 KPI 是什麼？",
-                "未來六到十二個月內，團隊最優先的任務是什麼？",
-                "這個職位的挑戰性主要來自哪些方面？"
-            ]
-        };
+        // 1. 監聽安裝事件，儲存提示並顯示按鈕
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installButton.style.display = 'block';
+            console.log('Install prompt is ready to be shown.');
+        });
 
-        // DOM 元素引用
-        const modeToggleBtn = document.getElementById('mode-toggle');
-        const introContentDiv = document.getElementById('intro-content');
-        const qaContentDiv = document.getElementById('qa-content');
-        const positionContentDiv = document.getElementById('position-content');
-        const loadingIndicator = document.getElementById('loading-indicator');
-        const userIdDisplay = document.getElementById('user-id-display');
-        const messageBox = document.getElementById('message-box');
-        
-        // Modal 相關 DOM 引用
-        const customModal = document.getElementById('custom-modal');
-        const modalMessage = document.getElementById('modal-message');
-        const modalConfirmBtn = document.getElementById('modal-confirm');
-        const modalCancelBtn = document.getElementById('modal-cancel');
-
-
-        // --- 核心工具函數 ---
-
-        // 顯示暫時通知訊息
-        function showNotification(message, isError = false) {
-            messageBox.textContent = message;
-            messageBox.className = `fixed top-20 right-4 p-3 rounded-lg font-medium shadow-xl transition-opacity duration-300 opacity-100 z-50 ${isError ? 'bg-red-500' : 'bg-green-500'}`;
-            
-            setTimeout(() => {
-                messageBox.classList.remove('opacity-100');
-                messageBox.classList.add('opacity-0');
-            }, 3000);
-        }
-        
-        // 顯示自定義確認彈窗
-        function showConfirmModal(message, onConfirm) {
-            modalMessage.textContent = message;
-            customModal.classList.remove('hidden');
-            
-            // 移除舊的事件監聽器以防重複觸發
-            modalConfirmBtn.onclick = null;
-            modalCancelBtn.onclick = null;
-
-            // 設置確定按鈕的行為
-            modalConfirmBtn.onclick = () => {
-                customModal.classList.add('hidden');
-                onConfirm(true);
-            };
-
-            // 設置取消按鈕的行為
-            modalCancelBtn.onclick = () => {
-                customModal.classList.add('hidden');
-                onConfirm(false);
-            };
-        }
-
-
-        // --- LocalStorage 資料操作 ---
-
-        // 儲存資料到 LocalStorage
-        function saveData() {
-            try {
-                // 將整個物件儲存到 LocalStorage
-                localStorage.setItem('cheatSheetData', JSON.stringify(cheatSheetData));
-                showNotification("資料已成功儲存到本地。");
-                console.log("資料已儲存:", cheatSheetData);
-            } catch (error) {
-                console.error("儲存資料失敗: ", error);
-                showNotification(`儲存失敗: ${error.message}`, true);
-            }
-        }
-
-        // 載入初始資料 (取代 Firebase 監聽)
-        function loadInitialData() {
-            loadingIndicator.classList.add('hidden');
-            
-            try {
-                const storedData = localStorage.getItem('cheatSheetData');
-                if (storedData) {
-                    const fetchedData = JSON.parse(storedData);
-                    // 合併資料，確保應用程式狀態與 LocalStorage 同步
-                    cheatSheetData = {
-                        intro: fetchedData.intro || cheatSheetData.intro,
-                        qas: fetchedData.qas || cheatSheetData.qas,
-                        positionQuestions: fetchedData.positionQuestions || cheatSheetData.positionQuestions
-                    };
-                    console.log("從 LocalStorage 載入資料:", cheatSheetData);
-                } else {
-                    console.log("LocalStorage 中無資料，使用預設值並儲存初始資料。");
-                    // 第一次運行，儲存預設資料
-                    saveData();
-                }
-            } catch (error) {
-                 console.error("載入資料失敗 (JSON解析錯誤或LocalStorage問題): ", error);
-                 showNotification(`載入資料失敗: ${error.message}`, true);
-            }
-            
-            // 無論是從 LocalStorage 載入還是使用預設值，都重新渲染介面
-            renderAllTabs();
-        }
-
-        // --- 模式與 Tab 切換邏輯 (與先前版本相同) ---
-
-        // 切換讀取/編輯模式
-        function toggleMode() {
-            currentMode = currentMode === 'read' ? 'edit' : 'read';
-            modeToggleBtn.textContent = currentMode === 'read' ? '切換至編輯模式' : '切換至閱讀模式';
-            
-            // 根據模式設定按鈕樣式
-            if (currentMode === 'edit') {
-                modeToggleBtn.classList.remove('bg-indigo-500', 'hover:bg-indigo-600', 'text-white');
-                modeToggleBtn.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white');
-                showNotification("已切換至編輯模式，所有內容現在都可以修改。");
-            } else {
-                modeToggleBtn.classList.remove('bg-red-500', 'hover:bg-red-600', 'text-white');
-                modeToggleBtn.classList.add('bg-indigo-500', 'hover:bg-indigo-600', 'text-white');
-                showNotification("已切換至閱讀模式，內容鎖定，適合面試時使用。");
-            }
-            
-            // 重新渲染當前 Tab
-            renderAllTabs();
-        }
-
-        // 切換 Tab
-        function switchTab(newTab) {
-            activeTab = newTab;
-            
-            // 隱藏所有內容區塊
-            document.querySelectorAll('.tab-content').forEach(el => {
-                el.classList.add('hidden');
-            });
-
-            // 顯示當前選定的內容區塊
-            document.getElementById(`${activeTab}-content`).classList.remove('hidden');
-
-            // 更新 Tab 按鈕樣式
-            document.querySelectorAll('.tab-button').forEach(btn => {
-                if (btn.dataset.tab === activeTab) {
-                    btn.classList.remove('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
-                    btn.classList.add('bg-indigo-500', 'text-white', 'shadow-md');
-                } else {
-                    btn.classList.remove('bg-indigo-500', 'text-white', 'shadow-md');
-                    btn.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
-                }
-            });
-        }
-
-        // --- 內容渲染函數 (與先前版本相同，但修改了儲存/刪除邏輯) ---
-
-        // 渲染自我介紹部分
-        function renderIntro() {
-            const isEdit = currentMode === 'edit';
-            introContentDiv.innerHTML = ''; // 清空內容
-
-            if (isEdit) {
-                introContentDiv.innerHTML = `
-                    <h2 class="text-2xl font-semibold mb-4 text-gray-700">編輯自我介紹</h2>
-                    <textarea id="intro-editor" rows="10" class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150 shadow-inner resize-none bg-gray-50 text-gray-800" placeholder="請輸入您的自我介紹">${cheatSheetData.intro}</textarea>
-                    <button onclick="updateIntro()" class="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md">儲存介紹</button>
-                `;
-            } else {
-                // 閱讀模式
-                introContentDiv.innerHTML = `
-                    <h2 class="text-2xl font-semibold mb-4 text-gray-700">我的自我介紹</h2>
-                    <div class="prose max-w-none p-4 border border-gray-200 rounded-lg bg-gray-50 shadow-inner whitespace-pre-wrap leading-relaxed text-gray-700">
-                        ${cheatSheetData.intro}
-                    </div>
-                `;
-            }
-        }
-        
-        // 更新自我介紹（僅限編輯模式）
-        window.updateIntro = function() {
-            const editor = document.getElementById('intro-editor');
-            if (editor) {
-                cheatSheetData.intro = editor.value;
-                saveData(); // 使用 LocalStorage 儲存
-                renderIntro();
-            }
-        }
-
-
-        // 渲染潛在問答部分
-        function renderQA() {
-            const isEdit = currentMode === 'edit';
-            qaContentDiv.innerHTML = ''; // 清空內容
-
-            let html = `<h2 class="text-2xl font-semibold mb-4 text-gray-700">${isEdit ? '編輯潛在問答' : '潛在問答 (Q&A)'}</h2>`;
-            
-            cheatSheetData.qas.forEach((qa, index) => {
-                html += `
-                    <div class="bg-gray-50 p-4 mb-4 rounded-lg border border-gray-200 shadow-sm transition duration-150 hover:shadow-md">
-                        <div class="text-lg font-bold text-indigo-600 mb-2">Q${index + 1}. 問題:</div>
-                        ${isEdit 
-                            ? `<textarea id="qa-q-${index}" rows="2" class="w-full p-2 mb-2 border border-gray-300 rounded-lg resize-none">${qa.question}</textarea>`
-                            : `<p class="text-gray-700 whitespace-pre-wrap mb-3">${qa.question}</p>`
-                        }
-                        
-                        <div class="text-lg font-bold text-green-600 mb-2 mt-4">A. 回答:</div>
-                        ${isEdit 
-                            ? `<textarea id="qa-a-${index}" rows="5" class="w-full p-2 border border-gray-300 rounded-lg resize-none">${qa.reply}</textarea>`
-                            : `<p class="text-gray-700 whitespace-pre-wrap leading-relaxed">${qa.reply}</p>`
-                        }
-                        
-                        ${isEdit ? `
-                            <div class="flex justify-end space-x-2 mt-4">
-                                <button onclick="saveQA(${index})" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition duration-150">儲存</button>
-                                <button onclick="deleteQA(${index})" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition duration-150">刪除</button>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            });
-            
-            if (isEdit) {
-                html += `
-                    <div class="mt-6 p-4 border-2 border-dashed border-gray-300 rounded-lg bg-white">
-                        <h3 class="text-xl font-semibold mb-3 text-gray-600">新增問答</h3>
-                        <textarea id="new-qa-q" rows="2" class="w-full p-3 mb-2 border border-gray-300 rounded-lg resize-none" placeholder="輸入新問題..."></textarea>
-                        <textarea id="new-qa-a" rows="5" class="w-full p-3 mb-4 border border-gray-300 rounded-lg resize-none" placeholder="輸入新回答..."></textarea>
-                        <button onclick="addQA()" class="w-full px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition duration-150 shadow-md">新增問答</button>
-                    </div>
-                `;
-            } else if (cheatSheetData.qas.length === 0) {
-                 html += `<p class="text-center text-gray-500 py-10">目前沒有潛在問答。請切換到編輯模式新增。</p>`;
-            }
-
-            qaContentDiv.innerHTML = html;
-        }
-
-        // 新增 Q&A
-        window.addQA = function() {
-            const newQ = document.getElementById('new-qa-q').value.trim();
-            const newA = document.getElementById('new-qa-a').value.trim();
-
-            if (newQ && newA) {
-                cheatSheetData.qas.push({ question: newQ, reply: newA });
-                saveData();
-                renderQA();
-            } else {
-                showNotification("問題和回答都不能為空。", true);
-            }
-        }
-
-        // 儲存特定 Q&A
-        window.saveQA = function(index) {
-            const q = document.getElementById(`qa-q-${index}`).value;
-            const a = document.getElementById(`qa-a-${index}`).value;
-            
-            cheatSheetData.qas[index].question = q;
-            cheatSheetData.qas[index].reply = a;
-            saveData();
-            renderQA();
-        }
-
-        // 刪除特定 Q&A (使用自定義彈窗)
-        window.deleteQA = function(index) {
-            showConfirmModal('確定要刪除這個問答嗎？', (confirmed) => {
-                if (confirmed) {
-                    cheatSheetData.qas.splice(index, 1);
-                    saveData();
-                    renderQA();
-                }
-            });
-        }
-
-        // 渲染職位問題部分
-        function renderPositionQuestions() {
-            const isEdit = currentMode === 'edit';
-            positionContentDiv.innerHTML = ''; // 清空內容
-            
-            let html = `<h2 class="text-2xl font-semibold mb-4 text-gray-700">${isEdit ? '編輯對職位的提問' : '對職位的提問'}</h2>`;
-            
-            if (cheatSheetData.positionQuestions.length > 0) {
-                html += '<ul class="space-y-4">';
-                cheatSheetData.positionQuestions.forEach((q, index) => {
-                    html += `
-                        <li class="flex items-start bg-gray-50 p-4 rounded-lg border border-gray-200 shadow-sm">
-                            <span class="mr-3 mt-1 text-indigo-500 font-bold text-xl flex-shrink-0">Q${index + 1}.</span>
-                            <div class="flex-grow">
-                                ${isEdit 
-                                    ? `<textarea id="pos-q-${index}" rows="2" class="w-full p-2 border border-gray-300 rounded-lg resize-none">${q}</textarea>`
-                                    : `<p class="text-gray-700 whitespace-pre-wrap leading-relaxed">${q}</p>`
-                                }
-                                
-                                ${isEdit ? `
-                                    <div class="flex justify-end space-x-2 mt-2">
-                                        <button onclick="savePositionQuestion(${index})" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition duration-150">儲存</button>
-                                        <button onclick="deletePositionQuestion(${index})" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 transition duration-150">刪除</button>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </li>
-                    `;
+        // 2. 處理按鈕點擊：手動觸發安裝
+        installButton.addEventListener('click', () => {
+            if (deferredPrompt) {
+                // 暫時隱藏按鈕，避免重複點擊
+                installButton.style.display = 'none';
+                
+                // 觸發原生安裝提示
+                deferredPrompt.prompt();
+                
+                // 監聽使用者選擇的結果
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the install prompt.');
+                    } else {
+                        console.log('User dismissed the install prompt.');
+                        // 如果使用者關閉了提示，我們清除事件，讓下次 beforeinstallprompt 重新觸發
+                        deferredPrompt = null;
+                    }
                 });
-                html += '</ul>';
-            } else if (!isEdit) {
-                 html += `<p class="text-center text-gray-500 py-10">目前沒有職位問題。請切換到編輯模式新增。</p>`;
             }
+        });
 
-            if (isEdit) {
-                html += `
-                    <div class="mt-6 p-4 border-2 border-dashed border-gray-300 rounded-lg bg-white">
-                        <h3 class="text-xl font-semibold mb-3 text-gray-600">新增問題</h3>
-                        <textarea id="new-pos-q" rows="2" class="w-full p-3 mb-4 border border-gray-300 rounded-lg resize-none" placeholder="輸入您想問面試官的新問題..."></textarea>
-                        <button onclick="addPositionQuestion()" class="w-full px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition duration-150 shadow-md">新增問題</button>
-                    </div>
-                `;
-            }
+        // 3. 應用程式已安裝後，確保按鈕消失
+        window.addEventListener('appinstalled', (e) => {
+            console.log('PWA was successfully installed.');
+            installButton.style.display = 'none';
+        });
 
-            positionContentDiv.innerHTML = html;
-        }
-
-        // 新增職位問題
-        window.addPositionQuestion = function() {
-            const newQ = document.getElementById('new-pos-q').value.trim();
-            
-            if (newQ) {
-                cheatSheetData.positionQuestions.push(newQ);
-                saveData();
-                renderPositionQuestions();
-            } else {
-                showNotification("問題不能為空。", true);
-            }
-        }
-
-        // 儲存特定職位問題
-        window.savePositionQuestion = function(index) {
-            const q = document.getElementById(`pos-q-${index}`).value;
-            cheatSheetData.positionQuestions[index] = q;
-            saveData();
-            renderPositionQuestions();
-        }
-
-        // 刪除特定職位問題 (使用自定義彈窗)
-        window.deletePositionQuestion = function(index) {
-            showConfirmModal('確定要刪除這個問題嗎？', (confirmed) => {
-                if (confirmed) {
-                    cheatSheetData.positionQuestions.splice(index, 1);
-                    saveData();
-                    renderPositionQuestions();
-                }
+        // 4. 註冊 Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(reg => console.log('Service Worker 註冊成功:', reg.scope))
+                    .catch(err => console.error('Service Worker 註冊失敗:', err));
             });
         }
-        
-        // 渲染所有 Tab
-        function renderAllTabs() {
-            // 確保先渲染所有內容，再切換到正確的 Tab
-            renderIntro();
-            renderQA();
-            renderPositionQuestions();
-            switchTab(activeTab); // 重新切換到當前活躍的 Tab
-        }
-
-
-        // --- 初始化與事件監聽 ---
-
-        window.onload = function() {
-            // 1. 載入資料 (取代 Firebase 初始化和監聽)
-            loadInitialData();
-            
-            // 2. 設置事件監聽器
-            modeToggleBtn.addEventListener('click', toggleMode);
-            
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.addEventListener('click', (e) => {
-                    switchTab(e.currentTarget.dataset.tab);
-                });
-            });
-
-            // 3. 初始渲染
-            switchTab('intro'); // 預設顯示自我介紹
-            
-            // 4. 初始模式按鈕樣式
-            modeToggleBtn.classList.add('bg-indigo-500', 'hover:bg-indigo-600', 'text-white');
-        }
-        
     </script>
 </body>
 </html>
