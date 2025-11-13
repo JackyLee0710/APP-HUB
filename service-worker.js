@@ -7,6 +7,7 @@ const urlsToCache = [
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap',
     // 雖然您的子網站是外部連結，但如果它們也是靜態的，可以考慮快取它們的主頁面
     './tra-search/index.html',
+    './trip_planner/index.html',
     './cheatsheet/index.html',
     './icon-512x512.png'
 ];
