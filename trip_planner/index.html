@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行程規劃網站</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* 自定義捲軸樣式，讓列表更美觀 */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #d1d5db; /* 淺灰色 */
+            border-radius: 3px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af; /* 深灰色 */
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+
+    <div id="routeModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-4 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-xl bg-white transform transition-all duration-300">
+            <div class="bg-white p-6 rounded-xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="formTitle" class="text-2xl font-bold text-gray-700 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd" />
+                        </svg>
+                        儲存新路線
+                    </h2>
+                    <button id="closeRouteModalButton" class="text-gray-400 hover:text-gray-600 p-2 rounded-full transition duration-150 ease-in-out">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                
+                <form id="routeForm" class="space-y-4">
+                    <input type="hidden" id="routeIdToEdit" value="">
+                    
+                    <div>
+                        <label for="routeName" class="block text-sm font-medium text-gray-700">路線名稱 (例如：回家路線)</label>
+                        <input type="text" id="routeName" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                    </div>
+
+                    <div>
+                        <label for="routeUrl" class="block text-sm font-medium text-gray-700">Google Maps 路線連結 (MANDATORY)</label>
+                        <p class="text-xs text-red-500 mb-1">貼上連結可自動填入起點和終點。</p>
+                        <input type="url" id="routeUrl" required placeholder="https://www.google.com/maps/dir/..." class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="routeStart" class="block text-sm font-medium text-gray-700">起點 (自動填入/手動修改)</label>
+                            <input type="text" id="routeStart" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        </div>
+
+                        <div>
+                            <label for="routeEnd" class="block text-sm font-medium text-gray-700">終點 (自動填入/手動修改)</label>
+                            <input type="text" id="routeEnd" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="routeMode" class="block text-sm font-medium text-gray-700">交通方式 (例如：火車、汽車、公車)</label>
+                        <input type="text" id="routeMode" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="例如：汽車, 火車, 捷運, 步行">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="routePrice" class="block text-sm font-medium text-gray-700">預估費用</label>
+                            <div class="mt-1 flex rounded-md shadow-sm">
+                                <button type="button" id="currencyToggle" class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100 transition duration-150" title="點擊切換幣別">
+                                    <span id="currencyCode">JPY</span> <span id="currencySymbol">¥</span> 
+                                </button>
+                                <input type="number" id="routePrice" min="0" value="0" class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                                <input type="hidden" id="currency" value="JPY"> 
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label for="departureTime" class="block text-sm font-medium text-gray-700">出發日期/時間 (排序依據)</label>
+                            <input type="datetime-local" id="departureTime" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">路線耗時</label>
+                        <div class="mt-1 flex space-x-2">
+                            <div class="flex-1">
+                                <div class="flex rounded-md shadow-sm">
+                                    <input type="number" id="routeDurationHours" min="0" value="0" class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                                    <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">小時</span>
+                                </div>
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex rounded-md shadow-sm">
+                                    <input type="number" id="routeDurationMinutes" min="0" max="59" value="0" class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                                    <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">分鐘</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <div>
+                        <label for="routeGroup" class="block text-sm font-medium text-gray-700">行程分類 (選擇現有行程，或輸入新的行程名稱)</label>
+                        <input type="text" id="routeGroup" required list="existingGroups" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150" placeholder="例如：每日通勤、日本之旅、家庭旅行，建議不超過八個字">
+                        <datalist id="existingGroups"></datalist>
+                    </div>
+                    
+
+                    <div class="flex space-x-4 pt-4">
+                        <button type="submit" id="saveButton" class="w-full flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">
+                            <span id="saveButtonText">儲存路線</span>
+                            <span id="loadingSpinner" class="hidden animate-spin h-5 w-5 border-4 border-white border-t-transparent rounded-full ml-2"></span>
+                        </button>
+                        <button type="button" id="cancelEditButton" class="hidden w-1/3 flex justify-center items-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition duration-150 ease-in-out">
+                            取消編輯
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="container mx-auto p-4 md:p-8">
+        <h1 class="text-4xl font-extrabold text-blue-800 mb-2">行程交通規劃</h1>
+        <p class="text-gray-600 mb-4">在這裡儲存您的旅行路線，一鍵開啟 Google Maps 導航！</p>
+
+        <div id="statusMessage" class="hidden p-3 mb-4 rounded-lg text-sm transition-all duration-300"></div>
+
+        <button id="openRouteModalButton" class="w-full lg:w-1/3 mb-6 flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-lg text-lg font-bold text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out">
+            <svg class="h-6 w-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 3h3m-3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            新增路線
+        </button>
+
+
+        <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 5h12a1 1 0 010 2h-1a1 1 0 00-1 1v6a1 1 0 01-1 1H7a1 1 0 01-1-1V8a1 1 0 00-1-1H4a1 1 0 010-2zm1 8H4v-1h1v1zm0-2H4V8h1v1zm8-1h1v1h-1v-1zm1 2h-1v1h1v-1z" />
+                </svg>
+                已儲存的路線 (<span id="routeCount">0</span>)
+            </h2>
+            
+            <div class="mb-4">
+                <label for="groupFilter" class="block text-sm font-medium text-gray-700 mb-1">依行程篩選:</label>
+                <div class="flex space-x-2 items-start">
+                    <select id="groupFilter" class="mt-1 block w-full flex-grow px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        <option value="ALL">-- 顯示所有行程 --</option>
+                    </select>
+                    <button id="deleteGroupButton" title="刪除所選行程的所有路線" disabled class="mt-1 p-2 h-10 bg-red-500 text-white rounded-md shadow-sm hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 100-2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-6 border-t pt-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">依日期區間篩選:</label>
+                <div class="flex space-x-2">
+                    <div class="flex-1">
+                        <label for="startDateFilter" class="block text-xs font-medium text-gray-500">從 (日期/時間)</label>
+                        <input type="datetime-local" id="startDateFilter" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                    </div>
+                    <div class="flex-1">
+                        <label for="endDateFilter" class="block text-xs font-medium text-gray-500">到 (日期/時間)</label>
+                        <input type="datetime-local" id="endDateFilter" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                    </div>
+                </div>
+            </div>
+
+            <div id="routeList" class="space-y-3 max-h-[50vh] custom-scroll overflow-y-auto pr-2">
+                <p id="loadingMessage" class="text-center text-gray-500 p-4">載入中...</p>
+            </div>
+        </div>
+
+        <div class="max-w-lg mx-auto bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+            <h3 class="text-xl font-bold text-gray-700 mb-4">資料管理</h3>
+            <div class="space-y-2">
+                <button onclick="window.openExportDialog()" class="w-full bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-yellow-600 transition duration-150 ease-in-out shadow-md flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 2a8 8 0 100 16 8 8 0 000-16zm-1 9V7a1 1 0 112 0v4a1 1 0 11-2 0zm-3 0a1 1 0 102 0V8a1 1 0 00-2 0v3zm6 0a1 1 0 102 0V8a1 1 0 00-2 0v3z" clip-rule="evenodd" />
+                    </svg>
+                    匯出所選行程 (.json)
+                </button>
+                <label for="fileInput" class="block w-full cursor-pointer">
+                    <div class="text-center bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-150 ease-in-out shadow-md flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L10 11.586l1.293-1.293a1 1 0 111.414 1.414l-2 2a1 1 0 01-1.414 0l-2-2a1 1 0 010-1.414zM10 2a1 1 0 011 1v7a1 1 0 11-2 0V3a1 1 0 011-1z" clip-rule="evenodd" />
+                        </svg>
+                        選擇檔案匯入 (.json)
+                    </div>
+                    <input type="file" id="fileInput" accept=".json" class="hidden" onchange="window.importRouteData(event)">
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div id="exportModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-xl font-bold mb-4 text-gray-800">匯出路線資料</h3>
+            <div class="space-y-4">
+                
+                <div>
+                    <label for="exportGroupSelect" class="block text-sm font-medium text-gray-700">選擇匯出行程</label>
+                    <select id="exportGroupSelect" class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        <option value="ALL">-- 匯出所有行程 --</option>
+                        </select>
+                </div>
+
+                <div>
+                    <label for="exportFileName" class="block text-sm font-medium text-gray-700">檔案名稱 (.json)</label>
+                    <input type="text" id="exportFileName" placeholder="例如：日本之旅路線" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="window.closeExportModal()" class="py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200">
+                    取消
+                </button>
+                <button id="confirmExportButton" class="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                    確認匯出
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 設定 LocalStorage 儲存資料的鍵
+        const TRIP_ROUTES_KEY = 'myTripRoutesData';
+        
+        let allRoutes = []; 
+        let currentGroupFilter = 'ALL'; 
+        let currentCurrency = 'JPY'; 
+
+        // 元素參照
+        const routeForm = document.getElementById('routeForm');
+        const routeList = document.getElementById('routeList');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const routeCountDisplay = document.getElementById('routeCount');
+        const saveButton = document.getElementById('saveButton');
+        const saveButtonText = document.getElementById('saveButtonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const groupFilter = document.getElementById('groupFilter'); 
+        const existingGroupsDatalist = document.getElementById('existingGroups'); 
+        
+        // 編輯模式與日期篩選器參照
+        const routeIdToEditElement = document.getElementById('routeIdToEdit');
+        const cancelEditButton = document.getElementById('cancelEditButton');
+        const formTitle = document.getElementById('formTitle');
+        const startDateFilterElement = document.getElementById('startDateFilter');
+        const endDateFilterElement = document.getElementById('endDateFilter');
+
+        // 狀態訊息框參照
+        const statusMessage = document.getElementById('statusMessage'); 
+
+        // 匯出相關參照
+        const exportModal = document.getElementById('exportModal');
+        const exportGroupSelect = document.getElementById('exportGroupSelect');
+        const exportFileNameInput = document.getElementById('exportFileName');
+        const confirmExportButton = document.getElementById('confirmExportButton');
+
+        // 新增的 Modal 參照
+        const routeModal = document.getElementById('routeModal');
+        const openRouteModalButton = document.getElementById('openRouteModalButton');
+        const closeRouteModalButton = document.getElementById('closeRouteModalButton');
+
+        // 新增：刪除行程按鈕參照
+        const deleteGroupButton = document.getElementById('deleteGroupButton');
+
+
+        // --- 輔助函式 (Modal 操作) ---
+        
+        /**
+         * @description 開啟路線新增/編輯 Modal 視窗
+         * @param {boolean} isEditing 是否為編輯模式
+         */
+        function openRouteModal(isEditing = false) {
+            routeModal.classList.remove('hidden');
+            if (isEditing) {
+                formTitle.textContent = '編輯現有路線';
+                setButtonLoading(false, true);
+            } else {
+                formTitle.textContent = '儲存新路線';
+                setButtonLoading(false, false);
+                cancelEdit(); // 開啟新增模式時重設表單
+            }
+        }
+
+        /**
+         * @description 關閉路線新增/編輯 Modal 視窗
+         */
+        function closeRouteModal() {
+            routeModal.classList.add('hidden');
+            cancelEdit(); // 關閉時重設表單和狀態
+        }
+
+        // --- 輔助函式 (原有的) ---
+
+        /**
+         * @description 切換幣別並更新顯示
+         */
+        function toggleCurrency() {
+            const symbolEl = document.getElementById('currencySymbol');
+            const codeEl = document.getElementById('currencyCode');
+            const inputEl = document.getElementById('currency');
+
+            if (currentCurrency === 'JPY') {
+                currentCurrency = 'TWD';
+            } else {
+                currentCurrency = 'JPY';
+            }
+            
+            updateCurrencyDisplay();
+            inputEl.value = currentCurrency;
+        }
+
+        /**
+         * @description 根據 currentCurrency 更新幣別顯示
+         */
+        function updateCurrencyDisplay() {
+            const symbolEl = document.getElementById('currencySymbol');
+            const codeEl = document.getElementById('currencyCode');
+            
+            symbolEl.textContent = currentCurrency === 'JPY' ? '¥' : '$';
+            codeEl.textContent = currentCurrency;
+        }
+
+        /**
+         * @description 將 X小時Y分鐘 格式轉換為單位的分鐘數
+         */
+        function durationToMinutes(hours, minutes) {
+            return (parseInt(hours) * 60) + parseInt(minutes);
+        }
+
+        /**
+         * @description 將分鐘數轉換為 "X小時Y分鐘" 格式
+         */
+        function formatDuration(totalMinutes) {
+            if (totalMinutes === 0) return '0分鐘';
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            let result = '';
+            if (h > 0) result += `${h}小時`;
+            if (m > 0) result += `${m}分鐘`;
+            return result || '0分鐘';
+        }
+
+        /**
+         * @description 將 "X小時Y分鐘" 字串解析為 [小時, 分鐘] 陣列
+         */
+        function parseDurationString(durationStr) {
+            const hoursMatch = durationStr.match(/(\d+)小時/);
+            const minsMatch = durationStr.match(/(\d+)分鐘/);
+            
+            const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+            const minutes = minsMatch ? parseInt(minsMatch[1]) : 0;
+            
+            return [hours, minutes];
+        }
+
+
+        /**
+         * @description 顯示操作狀態或錯誤訊息
+         */
+        function showStatusMessage(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'p-3 mb-4 rounded-lg text-sm transition-all duration-300 block';
+            
+            statusMessage.classList.remove('bg-blue-100', 'text-blue-800', 'bg-red-100', 'text-red-800', 'hidden');
+
+            if (type === 'success') {
+                statusMessage.classList.add('bg-blue-100', 'text-blue-800');
+            } else if (type === 'error') {
+                statusMessage.classList.add('bg-red-100', 'text-red-800');
+            }
+            
+            setTimeout(() => {
+                statusMessage.classList.add('hidden');
+            }, 5000);
+        }
+
+        /**
+         * 輔助函式：設定出發日期/時間欄位的預設值為當前時間，並初始化日期篩選器。
+         */
+        function setDefaultDateTime() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            
+            const dateTimeLocalString = `${year}-${month}-${day}T${hours}:${minutes}`;
+            document.getElementById('departureTime').value = dateTimeLocalString;
+
+            // 讓日期篩選器預設為當天 00:00 (如果沒有值)
+            const startFilterString = `${year}-${month}-${day}T00:00`;
+            if (!startDateFilterElement.value) {
+                 startDateFilterElement.value = startFilterString;
+            }
+        }
+
+        /**
+         * 輔助函式：啟用/禁用按鈕並顯示載入中
+         */
+        const setButtonLoading = (isLoading, isEditing = false) => {
+            saveButton.disabled = isLoading;
+            if (isLoading) {
+                saveButtonText.textContent = isEditing ? '更新中...' : '儲存中...';
+                loadingSpinner.classList.remove('hidden');
+                saveButton.classList.add('opacity-70', 'cursor-not-allowed');
+            } else {
+                saveButtonText.textContent = isEditing ? '更新路線' : '儲存路線';
+                loadingSpinner.classList.add('hidden');
+                saveButton.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
+            formTitle.textContent = isEditing ? '編輯現有路線' : '儲存新路線';
+        };
+
+        /**
+         * 輔助函式：重置表單狀態，退出編輯模式。
+         */
+        function cancelEdit() {
+            routeForm.reset();
+            document.getElementById('routePrice').value = 0; // 價格重設為 0
+            
+            // 重設耗時欄位
+            document.getElementById('routeDurationHours').value = 0; 
+            document.getElementById('routeDurationMinutes').value = 0; 
+            
+            setDefaultDateTime();
+            routeIdToEditElement.value = "";
+            
+            setButtonLoading(false, false); 
+
+            // 重設幣別為預設值
+            currentCurrency = 'JPY';
+            updateCurrencyDisplay();
+            document.getElementById('currency').value = 'JPY'; 
+
+            cancelEditButton.classList.add('hidden');
+            saveButton.classList.remove('w-2/3');
+            saveButton.classList.add('w-full');
+            
+            // 由於表單在 Modal 中，不需要滾動到視圖
+        }
+
+        // --- LocalStorage 核心函式 ---
+
+        function loadRoutesFromStorage() {
+            try {
+                const jsonString = localStorage.getItem(TRIP_ROUTES_KEY);
+                if (jsonString) {
+                    const routes = JSON.parse(jsonString);
+                    return routes.map(route => ({
+                        ...route,
+                        departureTime: new Date(route.departureTime), 
+                        price: parseFloat(route.price) || 0
+                    }));
+                }
+            } catch (error) {
+                console.error("載入 LocalStorage 資料失敗:", error);
+                localStorage.removeItem(TRIP_ROUTES_KEY);
+                showStatusMessage("行程資料載入失敗，已重設儲存空間。", 'error');
+            }
+            return [];
+        }
+
+        function saveRoutesToStorage() {
+            try {
+                const dataToSave = allRoutes.map(route => ({
+                    ...route,
+                    // 確保 Date 物件轉換為 ISO 格式字串以便儲存
+                    departureTime: route.departureTime instanceof Date ? route.departureTime.toISOString() : route.departureTime
+                }));
+                const jsonString = JSON.stringify(dataToSave);
+                localStorage.setItem(TRIP_ROUTES_KEY, jsonString);
+                processAndRenderRoutes(allRoutes);
+            } catch (error) {
+                console.error("儲存 LocalStorage 資料失敗:", error);
+                showStatusMessage("儲存行程資料失敗。", 'error');
+            }
+        }
+        
+        function processAndRenderRoutes(routes) {
+            // 1. 更新全域路線列表
+            allRoutes = routes.map(route => ({
+                ...route,
+                // 為沒有 id 的舊資料新增 ID
+                id: route.id || Date.now().toString() + Math.random().toString(36).substring(2, 9)
+            }));
+
+            // 2. 排序邏輯 (依出發時間/路線名稱)
+            allRoutes.sort((a, b) => {
+                const timeA = a.departureTime instanceof Date ? a.departureTime.getTime() : new Date(a.departureTime).getTime();
+                const timeB = b.departureTime instanceof Date ? b.departureTime.getTime() : new Date(b.departureTime).getTime();
+
+                if (timeA !== timeB) {
+                    return timeA - timeB; 
+                }
+
+                const nameA = a.name.toUpperCase();
+                const nameB = b.name.toUpperCase();
+
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                return 0;
+            });
+            
+            // 3. 更新行程篩選器選項
+            updateGroupFilterOptions(allRoutes);
+
+            // 4. 根據當前的篩選器狀態和日期篩選渲染列表
+            renderFilteredRoutes();
+            loadingMessage.classList.add('hidden'); // 隱藏載入訊息
+        }
+        
+        // --- 路線操作函式 ---
+
+        function initializeData() {
+            const pinnedGroup = localStorage.getItem('pinnedGroupFilter');
+            if (pinnedGroup) {
+                currentGroupFilter = pinnedGroup;
+            }
+            
+            const routes = loadRoutesFromStorage();
+            processAndRenderRoutes(routes);
+            setButtonLoading(false); 
+            updateCurrencyDisplay(); 
+        }
+
+        async function saveRoute(e) {
+            e.preventDefault();
+            const docId = routeIdToEditElement.value;
+            const isEditing = !!docId;
+
+            setButtonLoading(true, isEditing);
+            
+            await new Promise(resolve => setTimeout(resolve, 500)); 
+
+            const name = document.getElementById('routeName').value.trim();
+            const start = document.getElementById('routeStart').value.trim();
+            const end = document.getElementById('routeEnd').value.trim();
+            const url = document.getElementById('routeUrl').value.trim();
+            
+            const mode = document.getElementById('routeMode').value.trim(); 
+            const price = parseFloat(document.getElementById('routePrice').value) || 0; 
+            const currency = document.getElementById('currency').value; 
+            const departureTimeValue = document.getElementById('departureTime').value;
+            
+            // 處理路線耗時
+            const hours = parseInt(document.getElementById('routeDurationHours').value) || 0;
+            const minutes = parseInt(document.getElementById('routeDurationMinutes').value) || 0;
+            const durationTotalMinutes = durationToMinutes(hours, minutes);
+            const duration = formatDuration(durationTotalMinutes); 
+            
+            const group = document.getElementById('routeGroup').value.trim(); 
+
+            if (!departureTimeValue) {
+                console.error("請設定出發日期/時間。");
+                setButtonLoading(false, isEditing);
+                return;
+            }
+            const departureTime = new Date(departureTimeValue); 
+
+            if (!url.startsWith('http')) {
+                console.error("路線連結必須是一個有效的 URL (以 http 或 https 開頭)。");
+                setButtonLoading(false, isEditing);
+                return;
+            }
+            
+            const newRouteData = {
+                name: name,
+                start: start,
+                end: end,
+                url: url,
+                mode: mode, 
+                price: price, 
+                currency: currency, 
+                departureTime: departureTime, 
+                duration: duration, 
+                group: group, 
+            };
+
+            try {
+                if (isEditing) {
+                    const routeIndex = allRoutes.findIndex(r => r.id === docId);
+                    if (routeIndex > -1) {
+                        allRoutes[routeIndex] = { id: docId, ...newRouteData };
+                        showStatusMessage(`路線「${name}」已成功更新！`, 'success');
+                    } else {
+                        throw new Error("找不到要編輯的路線 ID");
+                    }
+                } else {
+                    const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9);
+                    allRoutes.push({ id: newId, ...newRouteData });
+                    showStatusMessage(`新路線「${name}」已成功儲存！`, 'success');
+                }
+
+                saveRoutesToStorage();
+                closeRouteModal(); // 儲存成功後，關閉 Modal
+
+            } catch (error) {
+                console.error(`${isEditing ? '更新' : '儲存'}路線時發生錯誤:`, error);
+                showStatusMessage(`${isEditing ? '更新' : '儲存'}路線失敗: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(false, isEditing);
+            }
+        }
+
+        async function deleteRoute(docId) {
+            await new Promise(resolve => setTimeout(resolve, 200)); 
+
+            const initialLength = allRoutes.length;
+            allRoutes = allRoutes.filter(route => route.id !== docId);
+
+            if (allRoutes.length < initialLength) {
+                saveRoutesToStorage(); 
+                showStatusMessage("路線已成功刪除！", 'success');
+            } else {
+                showStatusMessage("刪除路線失敗：找不到該路線。", 'error');
+            }
+        }
+        
+        /**
+         * @description 刪除指定行程中的所有路線 (新增功能)
+         */
+        function deleteGroup(groupName) {
+            if (groupName === 'ALL' || !groupName) {
+                showStatusMessage("無法刪除所有行程或未指定的行程。", 'error');
+                return;
+            }
+
+            const countToDelete = allRoutes.filter(r => r.group === groupName).length;
+            if (countToDelete === 0) {
+                 showStatusMessage(`行程「${groupName}」中沒有路線可供刪除。`, 'error');
+                return;
+            }
+            
+            if (!confirm(`您確定要刪除行程「${groupName}」中的所有 ${countToDelete} 條路線嗎？此操作無法復原。`)) {
+                showStatusMessage("刪除操作已取消。", 'success');
+                return;
+            }
+
+            const initialLength = allRoutes.length;
+
+            // 保留 group 不等於 groupName 的路線
+            allRoutes = allRoutes.filter(route => route.group !== groupName);
+
+            if (allRoutes.length === initialLength - countToDelete) {
+                saveRoutesToStorage();
+                
+                // 重設篩選器為 ALL，因為當前選中的行程已被刪除
+                currentGroupFilter = 'ALL';
+                localStorage.setItem('pinnedGroupFilter', 'ALL');
+                groupFilter.value = 'ALL';
+                
+                processAndRenderRoutes(allRoutes); // 重新處理並渲染
+                showStatusMessage(`成功刪除行程「${groupName}」中的 ${countToDelete} 條路線！`, 'success');
+            } else {
+                showStatusMessage("刪除行程路線失敗。", 'error');
+            }
+        }
+        
+        function loadRouteForEdit(routeId) {
+            const route = allRoutes.find(r => r.id === routeId);
+            if (!route) {
+                console.error("找不到要編輯的路線:", routeId);
+                return;
+            }
+            
+            // 1. 開啟 Modal 並設定為編輯模式
+            openRouteModal(true); 
+
+            // 2. 填入表單欄位
+            document.getElementById('routeName').value = route.name;
+            document.getElementById('routeUrl').value = route.url;
+            document.getElementById('routeStart').value = route.start;
+            document.getElementById('routeEnd').value = route.end;
+            document.getElementById('routeMode').value = route.mode; 
+            document.getElementById('routePrice').value = route.price || 0; 
+            
+            // 處理幣別切換
+            currentCurrency = route.currency || 'JPY';
+            document.getElementById('currency').value = currentCurrency;
+            updateCurrencyDisplay(); 
+
+            // 處理路線耗時
+            const [h, m] = parseDurationString(route.duration);
+            document.getElementById('routeDurationHours').value = h; 
+            document.getElementById('routeDurationMinutes').value = m; 
+            
+            // 處理日期時間
+            const date = route.departureTime instanceof Date ? route.departureTime : new Date(route.departureTime);
+            if (!isNaN(date.getTime())) {
+                const yyyy = date.getFullYear();
+                const mm = String(date.getMonth() + 1).padStart(2, '0');
+                const dd = String(date.getDate()).padStart(2, '0');
+                const hh = String(date.getHours()).padStart(2, '0');
+                const min = String(date.getMinutes()).padStart(2, '0');
+                document.getElementById('departureTime').value = `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+            } else {
+                setDefaultDateTime();
+            }
+            
+            document.getElementById('routeGroup').value = route.group; 
+
+            // 3. 進入編輯模式
+            routeIdToEditElement.value = routeId;
+            setButtonLoading(false, true); 
+            cancelEditButton.classList.remove('hidden'); 
+            saveButton.classList.remove('w-full');
+            saveButton.classList.add('w-2/3'); 
+            
+            document.getElementById('routeName').focus();
+        }
+        
+        function updateGroupFilterOptions(routes) {
+            const groups = new Set();
+            routes.forEach(route => {
+                if (route.group && typeof route.group === 'string' && route.group.trim() !== '') {
+                    groups.add(route.group.trim());
+                }
+            });
+
+            const sortedGroups = Array.from(groups).sort();
+
+            // 1. 更新篩選器 (Select 元素)
+            groupFilter.innerHTML = '<option value="ALL">-- 顯示所有行程 --</option>';
+            sortedGroups.forEach(groupName => {
+                const option = document.createElement('option');
+                option.value = groupName;
+                option.textContent = groupName;
+                if (groupName === currentGroupFilter) {
+                    option.selected = true;
+                }
+                groupFilter.appendChild(option);
+            });
+            
+            // 2. 更新輸入欄位的 Datalist
+            existingGroupsDatalist.innerHTML = '';
+            sortedGroups.forEach(groupName => {
+                const option = document.createElement('option');
+                option.value = groupName;
+                existingGroupsDatalist.appendChild(option);
+            });
+            
+            // 3. 確保篩選器值保持正確 (處理刪除行程後)
+            if (!groups.has(currentGroupFilter) && currentGroupFilter !== 'ALL') {
+                currentGroupFilter = 'ALL';
+                localStorage.setItem('pinnedGroupFilter', 'ALL');
+                groupFilter.value = 'ALL';
+            }
+        }
+
+
+        function renderFilteredRoutes() {
+            let routesToRender = allRoutes;
+            
+            // --- 1. 行程篩選 ---
+            if (currentGroupFilter !== 'ALL') {
+                routesToRender = routesToRender.filter(route => route.group === currentGroupFilter);
+            }
+            
+            // --- 2. 日期區間篩選 ---
+            const startValue = startDateFilterElement.value;
+            const endValue = endDateFilterElement.value;
+            
+            const start = startValue ? new Date(startValue) : null;
+            const end = endValue ? new Date(endValue) : null;
+            
+            if ((start && !isNaN(start.getTime())) || (end && !isNaN(end.getTime()))) {
+                routesToRender = routesToRender.filter(route => {
+                    const routeDate = route.departureTime instanceof Date ? route.departureTime : new Date(route.departureTime);
+                    
+                    if (isNaN(routeDate.getTime())) {
+                        return false; 
+                    }
+                    
+                    let passesStart = true;
+                    if (start && !isNaN(start.getTime())) {
+                        passesStart = routeDate >= start;
+                    }
+
+                    let passesEnd = true;
+                    if (end && !isNaN(end.getTime())) {
+                        passesEnd = routeDate <= end;
+                    }
+
+                    return passesStart && passesEnd;
+                });
+            }
+
+            routeCountDisplay.textContent = routesToRender.length;
+            renderRoutes(routesToRender);
+            
+            // --- 3. 控制刪除行程按鈕的狀態 ---
+            const routesInCurrentGroup = allRoutes.filter(route => route.group === currentGroupFilter);
+            if (currentGroupFilter !== 'ALL' && routesInCurrentGroup.length > 0) {
+                deleteGroupButton.disabled = false;
+                deleteGroupButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                deleteGroupButton.title = `刪除行程「${currentGroupFilter}」中的所有 ${routesInCurrentGroup.length} 條路線`;
+            } else {
+                deleteGroupButton.disabled = true;
+                deleteGroupButton.classList.add('opacity-50', 'cursor-not-allowed');
+                deleteGroupButton.title = '請選擇一個包含路線的行程來刪除';
+            }
+        }
+
+        // --- 以下是經過修正的 renderRoutes 函式 ---
+        function renderRoutes(routes) {
+            routeList.innerHTML = ''; 
+            
+            // 新增：追蹤前一條路線的日期 (YYYY-MM-DD)，使用本地日期
+            let lastDate = null; 
+
+            if (routes.length === 0) {
+                const message = currentGroupFilter === 'ALL' 
+                    ? '目前沒有已儲存的路線。請按「新增路線」按鈕來新增。' 
+                    : `「${currentGroupFilter}」行程中沒有指定時間的路線。`;
+                routeList.innerHTML = `<p class="text-center text-gray-400 p-4">${message}</p>`;
+                return;
+            }
+
+            routes.forEach(route => {
+                
+                const dateObj = route.departureTime instanceof Date ? route.departureTime : new Date(route.departureTime);
+                
+                let currentDate = null;
+                if (!isNaN(dateObj.getTime())) {
+                    // *** 修正: 使用本地時間的年、月、日來組合日期字串 ***
+                    const yyyy = dateObj.getFullYear();
+                    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    const dd = String(dateObj.getDate()).padStart(2, '0');
+                    currentDate = `${yyyy}-${mm}-${dd}`;
+                }
+                
+                // --- 日期分隔線邏輯 ---
+                if (currentDate && currentDate !== lastDate) {
+                    // 格式化顯示的日期
+                    const dateDisplay = dateObj.toLocaleDateString('zh-TW', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        weekday: 'long' // 顯示星期幾
+                    });
+                    
+                    const dateSeparator = document.createElement('div');
+                    // 使用 Tailwind CSS 美化分隔線
+                    dateSeparator.className = 'flex items-center my-4 space-x-3';
+                    dateSeparator.innerHTML = `
+                        <div class="flex-grow border-t border-gray-300"></div>
+                        <span class="text-lg font-bold text-gray-700 bg-white px-4 py-1 rounded-full shadow-lg border border-gray-200">${dateDisplay}</span>
+                        <div class="flex-grow border-t border-gray-300"></div>
+                    `;
+                    routeList.appendChild(dateSeparator);
+                    
+                    // 更新前一個日期
+                    lastDate = currentDate;
+                }
+                // --- 日期分隔線邏輯結束 ---
+
+                let currencySymbol;
+                if (route.currency === 'JPY') {
+                    currencySymbol = 'JP¥';
+                } else if (route.currency === 'TWD') {
+                    currencySymbol = 'NT$';
+                } else {
+                    currencySymbol = route.currency || '';
+                }
+
+                const priceDisplay = route.price > 0 ? `${currencySymbol} ${route.price.toFixed(0)}` : '免費/無費用';
+                const modeDisplay = route.mode || '未指定';
+                const durationDisplay = route.duration || '未指定'; 
+                const groupDisplay = route.group || '未設定行程'; 
+
+                // 格式化日期/時間顯示
+                let departureDisplay = '未設定時間';
+                
+                if (!isNaN(dateObj.getTime())) {
+                    departureDisplay = dateObj.toLocaleString('zh-TW', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false 
+                    }).replace(/\//g, '/').replace(',', ''); 
+                }
+
+                const routeItem = document.createElement('div');
+                // *** 重要的 CSS 變動：將父元素設為 relative，用於絕對定位子元素 (relative) ***
+                routeItem.className = 'relative bg-blue-50 hover:bg-blue-100 p-4 rounded-lg shadow-sm border border-blue-200 transition duration-150 ease-in-out overflow-hidden';
+                routeItem.innerHTML = `
+                    
+                <div class="absolute top-0 right-4 h-1/2 flex items-start justify-end p-4 pointer-events-none z-0">
+                    <span class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-blue-300/40 opacity-90 select-none whitespace-nowrap">${groupDisplay}</span>
+                </div>
+
+                <div class="absolute bottom-0 right-4 h-1/2 flex items-end justify-end p-4 pointer-events-none z-0">
+                    <span class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-purple-300/40 opacity-90 select-none whitespace-nowrap">${departureDisplay}</span>
+                </div>
+                    
+                    <div class="flex justify-between items-start z-10 relative">
+                        <a href="${route.url}" target="_blank" rel="noopener noreferrer" class="flex-grow focus:outline-none">
+                            <h3 class="text-lg font-semibold text-blue-800 hover:text-blue-600">${route.name}</h3>
+                            
+                            <div class="mt-2">
+                                <p class="text-xs text-gray-700 font-medium flex flex-wrap items-center">
+                                    交通：<span class="font-medium text-blue-600">${modeDisplay}</span>
+                                </p>
+                                <p class="text-xs text-gray-700 font-medium flex flex-wrap items-center">
+                                    費用：<span class="font-medium text-green-700">${priceDisplay}</span>
+                                    <span class="mx-1 text-gray-400">|</span>
+                                    耗時：<span class="font-medium text-amber-700">${durationDisplay}</span>
+                                </p>
+                                <p class="text-xs text-gray-500 mt-1">從：${route.start || '未指定'} | 到：${route.end || '未指定'}</p>
+                                <span class="inline-flex items-center text-sm font-medium text-blue-500 mt-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l.523-.185A1 1 0 009 15.546V7.5a1 1 0 112 0v8.046a1 1 0 00.553.894l.523.185a1 1 0 001.169-1.409l-7-14z" />
+                                    </svg>
+                                    點擊開啟 Google Maps
+                                </span>
+                            </div>
+                        </a>
+                        
+                        <div class="flex flex-col space-y-2 ml-4 flex-shrink-0 z-10">
+                            <button data-doc-id="${route.id}" class="edit-btn text-yellow-600 hover:text-yellow-700 p-1 rounded-full bg-yellow-100 hover:bg-yellow-200 transition duration-150 ease-in-out shadow-sm" title="編輯路線">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.22 3.22a1 1 0 011.414 0l1.414 1.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-.707.293H7a1 1 0 01-1-1v-1.586a1 1 0 01.293-.707l4.586-4.586z" />
+                                </svg>
+                            </button>
+                            <button data-doc-id="${route.id}" class="delete-btn text-red-500 hover:text-red-700 p-1 rounded-full bg-red-100 hover:bg-red-200 transition duration-150 ease-in-out shadow-sm" title="刪除路線">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // 附加事件監聽器到刪除和編輯按鈕
+                routeItem.querySelector('.delete-btn').addEventListener('click', (e) => {
+                    const docId = e.currentTarget.getAttribute('data-doc-id');
+                    if (confirm("您確定要刪除這條路線嗎？此操作無法復原。")) {
+                        deleteRoute(docId);
+                    }
+                });
+                routeItem.querySelector('.edit-btn').addEventListener('click', (e) => {
+                    const docId = e.currentTarget.getAttribute('data-doc-id');
+                    loadRouteForEdit(docId); // 載入資料並自動開啟 Modal
+                });
+
+                routeList.appendChild(routeItem);
+            });
+        }
+        
+        function extractStartEndFromUrl(url) {
+            if (!url.includes('/maps/dir/')) {
+                return null;
+            }
+
+            try {
+                const urlObj = new URL(url);
+                const dirIndex = urlObj.pathname.indexOf('/dir/');
+                if (dirIndex === -1) return null;
+
+                const dirPath = urlObj.pathname.substring(dirIndex + 5).replace(/^\/|\/$/g, '');
+                const parts = dirPath.split('/');
+                
+                if (parts.length < 2) return null;
+
+                const start = decodeURIComponent(parts[0]).replace(/\+/g, ' ');
+                const end = decodeURIComponent(parts[parts.length - 1]).replace(/\+/g, ' ');
+
+                return { 
+                    start: start.toLowerCase() === 'current location' ? '當前位置' : start, 
+                    end: end 
+                };
+
+            } catch (e) {
+                console.error("URL 解析失敗:", e);
+                return null;
+            }
+        }
+        
+        // --- 匯出/匯入功能核心函式 ---
+
+        /**
+         * @description 開啟匯出彈出視窗
+         */
+        window.openExportDialog = function() {
+             // 填充行程選項
+            const groups = new Set();
+            allRoutes.forEach(route => {
+                if (route.group && typeof route.group === 'string' && route.group.trim() !== '') {
+                    groups.add(route.group.trim());
+                }
+            });
+
+            const sortedGroups = Array.from(groups).sort();
+            exportGroupSelect.innerHTML = '<option value="ALL">-- 匯出所有行程 --</option>';
+            sortedGroups.forEach(groupName => {
+                const option = document.createElement('option');
+                option.value = groupName;
+                option.textContent = groupName;
+                exportGroupSelect.appendChild(option);
+            });
+            
+            // 預設檔案名稱
+            exportFileNameInput.value = `trip_routes_export_${new Date().toISOString().slice(0, 10)}`;
+            
+            exportModal.classList.remove('hidden');
+        }
+
+        /**
+         * @description 關閉匯出彈出視窗
+         */
+        window.closeExportModal = function() {
+            exportModal.classList.add('hidden');
+        }
+
+        /**
+         * @description 將所選路線資料匯出為 JSON 檔案
+         */
+        window.exportRouteData = function(groupFilter, fileName) {
+            
+            let routesToExport = allRoutes;
+            
+            if (groupFilter !== 'ALL') {
+                 routesToExport = allRoutes.filter(route => route.group === groupFilter);
+            }
+
+            if (!routesToExport || routesToExport.length === 0) {
+                showStatusMessage(`在行程「${groupFilter}」中沒有資料可供匯出。`, 'error');
+                return;
+            }
+
+            // 1. 轉換資料：移除 LocalStorage ID
+            const dataToExport = routesToExport.map(route => {
+                const exportedRoute = { ...route };
+                delete exportedRoute.id; 
+                
+                // 轉換 departureTime
+                if (exportedRoute.departureTime instanceof Date) {
+                    exportedRoute.departureTime = exportedRoute.departureTime.toISOString();
+                }
+
+                return exportedRoute;
+            });
+
+            try {
+                // 2. 建立 JSON 字串和 Blob
+                const jsonString = JSON.stringify(dataToExport, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                
+                // 3. 觸發下載
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const finalFileName = `${fileName.replace(/\.json$/i, '')}.json`;
+                a.download = finalFileName;
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url); 
+
+                showStatusMessage(`成功匯出 ${dataToExport.length} 條路線 (行程: ${groupFilter})！檔案名稱: ${a.download}`, 'success');
+
+            } catch (error) {
+                console.error("匯出資料時發生錯誤:", error);
+                showStatusMessage("匯出資料失敗，請檢查控制台錯誤。", 'error');
+            }
+        }
+
+        /**
+         * @description 從 JSON 檔案匯入路線資料並儲存到 LocalStorage
+         */
+        window.importRouteData = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.endsWith('.json')) {
+                showStatusMessage("請選擇有效的 .json 檔案。", 'error');
+                event.target.value = null; 
+                return;
+            }
+
+            const reader = new FileReader();
+
+            reader.onload = async (e) => {
+                let importedData;
+                let successCount = 0;
+                let failedCount = 0;
+                let routesToImport = [];
+
+                try {
+                    importedData = JSON.parse(e.target.result);
+
+                    if (!Array.isArray(importedData)) {
+                        showStatusMessage("匯入檔案格式錯誤：預期為陣列。", 'error');
+                        return;
+                    }
+                    if (importedData.length === 0) {
+                         showStatusMessage("匯入檔案中沒有路線資料。", 'error');
+                         return;
+                    }
+                    
+                    const mode = confirm(`您確定要匯入 ${importedData.length} 條路線嗎？
+按下「確定」：將 **新增** 這些路線到現有列表。
+按下「取消」：取消操作。`);
+
+                    if (!mode) {
+                        showStatusMessage("匯入操作已取消。", 'success');
+                        return;
+                    }
+
+                    showStatusMessage(`正在匯入 ${importedData.length} 條路線...`, 'success');
+
+                    for (const route of importedData) {
+                        // 1. 數據清理與驗證
+                        if (!route.name || !route.url || !route.departureTime) {
+                            failedCount++;
+                            continue;
+                        }
+                        
+                        // 2. 轉換日期
+                        let departureDate = null;
+                        try {
+                            departureDate = new Date(route.departureTime);
+                            if (isNaN(departureDate.getTime())) {
+                                throw new Error("Invalid Date");
+                            }
+                        } catch (dateError) {
+                            failedCount++;
+                            continue;
+                        }
+
+                        // 3. 準備儲存的資料
+                        const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9) + successCount;
+                        const dataToSave = {
+                            id: newId, 
+                            name: route.name,
+                            start: route.start || '未指定起點',
+                            end: route.end || '未指定終點',
+                            url: route.url,
+                            mode: route.mode || '未指定', 
+                            price: parseFloat(route.price) || 0, 
+                            currency: route.currency || 'JPY', 
+                            duration: route.duration || '0分鐘', // 確保有預設值
+                            departureTime: departureDate, 
+                            group: route.group || '未設定行程',
+                        };
+                        
+                        routesToImport.push(dataToSave);
+                        successCount++;
+                    }
+
+                    // 4. 新增到 allRoutes 陣列
+                    allRoutes.push(...routesToImport);
+                    saveRoutesToStorage(); 
+
+                    // 5. 完成後顯示總結訊息
+                    if (successCount > 0 || failedCount > 0) {
+                        showStatusMessage(`匯入完成！成功匯入 ${successCount} 條路線${failedCount > 0 ? `，失敗 ${failedCount} 條` : ''}。`, successCount > 0 ? 'success' : 'error');
+                    }
+
+                } catch (error) {
+                    console.error("匯入檔案解析失敗或操作錯誤:", error);
+                    showStatusMessage("匯入檔案解析失敗。請確保它是有效的 JSON 格式。", 'error');
+                } finally {
+                    event.target.value = null; 
+                }
+            };
+
+            reader.onerror = () => {
+                showStatusMessage("讀取檔案時發生錯誤。", 'error');
+                event.target.value = null; 
+            };
+
+            reader.readAsText(file);
+        }
+        
+        // 應用程式啟動與事件監聽設定
+        window.onload = function() {
+            setDefaultDateTime(); 
+            initializeData(); 
+            
+            // --- Modal 相關監聽 ---
+            openRouteModalButton.addEventListener('click', () => openRouteModal(false));
+            closeRouteModalButton.addEventListener('click', closeRouteModal);
+            cancelEditButton.addEventListener('click', closeRouteModal); 
+            
+            // 表單儲存
+            routeForm.addEventListener('submit', saveRoute);
+            
+            // 幣別切換監聽
+            document.getElementById('currencyToggle').addEventListener('click', toggleCurrency);
+
+            // 篩選器
+            groupFilter.addEventListener('change', (e) => {
+                currentGroupFilter = e.target.value;
+                localStorage.setItem('pinnedGroupFilter', currentGroupFilter); 
+                renderFilteredRoutes(); 
+            });
+            startDateFilterElement.addEventListener('change', renderFilteredRoutes);
+            endDateFilterElement.addEventListener('change', renderFilteredRoutes);
+            
+            // 新增：刪除行程功能監聽
+            deleteGroupButton.addEventListener('click', () => {
+                deleteGroup(currentGroupFilter);
+            });
+
+            // URL 欄位變化
+            document.getElementById('routeUrl').addEventListener('input', function(e) {
+                const url = e.target.value;
+                const extracted = extractStartEndFromUrl(url);
+
+                if (extracted) {
+                    document.getElementById('routeStart').value = extracted.start;
+                    document.getElementById('routeEnd').value = extracted.end;
+                } else {
+                    if (!routeIdToEditElement.value) {
+                         document.getElementById('routeStart').value = '';
+                         document.getElementById('routeEnd').value = '';
+                    }
+                }
+            });
+
+            // 匯出彈出視窗確認按鈕監聽
+            confirmExportButton.addEventListener('click', () => {
+                const group = exportGroupSelect.value;
+                const fileName = exportFileNameInput.value.trim() || `trip_routes_export_${new Date().toISOString().slice(0, 10)}`;
+                
+                closeExportModal(); 
+                exportRouteData(group, fileName);
+            });
+        };
+
+    </script>
+</body>
+</html>
