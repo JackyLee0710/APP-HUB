@@ -9,6 +9,7 @@ const urlsToCache = [
     './tra-search/index.html',
     './trip_planner/index.html',
     './cheatsheet/index.html',
+    './MTG_Query/index.html',
     './icon-512x512.png'
 ];
 
@@ -38,7 +39,10 @@ self.addEventListener('fetch', event => {
   if (event.request.url.startsWith('https://tdx.transportdata.tw')) {
     return;
   }
-  
+  if (event.request.url.startsWith('https://api.scryfall.com') || event.request.url.includes('googleapis.com')) {
+    // 讓 API 請求直接走網路
+    return;
+  }
   event.respondWith(
     caches.match(event.request)
       .then(response => {
@@ -47,7 +51,25 @@ self.addEventListener('fetch', event => {
           return response;
         }
         // 快取中沒有則嘗試發出網路請求
-        return fetch(event.request);
+        return fetch(event.request).then(
+          (response) => {
+            // 檢查回應是否有效
+            if(!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+
+            // 重要：複製回應，因為 stream 只能讀取一次
+            const responseToCache = response.clone();
+
+            // 將新請求到的資源加入快取 (背景更新)
+            caches.open(CACHE_NAME)
+              .then((cache) => {
+                cache.put(event.request, responseToCache);
+              });
+
+            return response;
+          }
+        );
       })
   );
 });
