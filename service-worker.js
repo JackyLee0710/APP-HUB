@@ -10,6 +10,7 @@ const urlsToCache = [
     './trip_planner/index.html',
     './cheatsheet/index.html',
     './MTG_Query/index.html',
+    './NFC_Reader/index.html',
     './icon-512x512.png'
 ];
 
