@@ -144,8 +144,13 @@
             if (stream) {
                 // 成功處理
                 webcam.srcObject = stream;
+                // 確保視訊開始播放
+                await webcam.play().catch(e => {
+                    console.error("Webcam play failed, possibly due to user interaction requirement:", e);
+                });
+                
                 webcam.onloadedmetadata = () => {
-                    webcam.play();
+                    //webcam.play();
                     // 在此確保成功取得的串流已啟動
                     const track = stream.getVideoTracks()[0];
                     if (track && track.getSettings().facingMode === 'user') {
@@ -386,4 +391,5 @@
 
     </script>
 </body>
+
 </html>
