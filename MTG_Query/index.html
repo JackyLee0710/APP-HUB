@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG 卡牌快速查詢器</title>
+    <!-- 載入 Tailwind CSS 框架 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定自訂字體和背景 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* 深色背景 */
+        }
+        .card-container {
+            /* 模擬 63x88mm 卡牌的長寬比，以便用戶對焦 */
+            aspect-ratio: 63 / 88;
+            max-width: 350px; /* 限制最大寬度 */
+            border: 4px solid #f6e05e; /* 金色邊框 */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 確保視訊填滿容器 */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center text-white mb-6">🔮 MTG 卡牌查詢助手 💳</h1>
+        <p class="text-center text-gray-400 mb-8">請將卡牌標題對準下方的金色框線區域，然後點擊「辨識卡牌」按鈕。</p>
+
+        <!-- 主應用程式區域 -->
+        <div class="flex flex-col lg:flex-row gap-8">
+            
+            <!-- 1. 影像擷取區域 -->
+            <div class="flex flex-col items-center flex-1 lg:max-w-sm mx-auto">
+                <div id="webcam-container" class="card-container bg-gray-800 rounded-xl">
+                    <!-- 視訊串流將顯示在這裡 -->
+                    <video id="webcam" autoplay playsinline class="rounded-xl"></video>
+                    <!-- 用於擷取影像的 Canvas (隱藏) -->
+                    <canvas id="snapshot-canvas" style="display: none;"></canvas>
+                    <div id="loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden">
+                        <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-white text-lg font-semibold">正在辨識卡牌...</span>
+                    </div>
+                </div>
+
+                <button id="snapshot-btn" onclick="handleScan()"
+                        class="mt-6 w-full max-w-xs px-6 py-3 bg-yellow-500 text-gray-900 font-extrabold rounded-lg shadow-lg hover:bg-yellow-400 transition transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed">
+                    📷 辨識卡牌
+                </button>
+
+                <p id="status-message" class="mt-4 text-center text-gray-300 min-h-6">等待相機啟動...</p>
+            </div>
+
+            <!-- 2. 結果顯示區域 -->
+            <div class="flex-1 bg-gray-800 p-6 rounded-xl shadow-inner border border-gray-700">
+                <h2 id="card-name-display" class="text-2xl font-semibold text-white mb-4 border-b pb-2 border-gray-700">查詢結果</h2>
+                
+                <div id="version-options" class="space-y-3">
+                    <p class="text-gray-500">當您成功辨識卡牌後，這裡將顯示所有版本選項。</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- API 密鑰注意事項 -->
+        <div class="mt-10 p-4 bg-red-800 bg-opacity-30 rounded-lg text-sm text-red-200 border border-red-700">
+            **重要提醒：** 為了在瀏覽器中直接進行 OCR，我們使用了 Gemini API。在實際的生產環境中，為了保護您的 API 密鑰，強烈建議使用伺服器端代理 (Server-Side Proxy) 來處理 Google Cloud Vision API 的呼叫。
+        </div>
+    </div>
+
+    <!-- JavaScript 邏輯 -->
+    <script type="module">
+        // --------------------------------------------------------
+        // 1. Firebase 和 API 設定 (Canvas 環境專用)
+        // --------------------------------------------------------
+        // 程式碼中會使用 Canvas 環境提供的全域變數 __app_id, __firebase_config, __initial_auth_token
+        
+        const API_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${API_MODEL}:generateContent?key=`;
+        const SCRYFALL_API_URL = "https://api.scryfall.com/cards/search?q=";
+
+        // --------------------------------------------------------
+        // 2. DOM 元素 & 狀態管理
+        // --------------------------------------------------------
+        const webcam = document.getElementById('webcam');
+        const canvas = document.getElementById('snapshot-canvas');
+        const statusMessage = document.getElementById('status-message');
+        const snapshotBtn = document.getElementById('snapshot-btn');
+        const versionOptions = document.getElementById('version-options');
+        const cardNameDisplay = document.getElementById('card-name-display');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        let stream = null;
+
+        // --------------------------------------------------------
+        // 3. 相機功能
+        // --------------------------------------------------------
+
+        /** * 啟動網路攝影機
+         * 嘗試後置鏡頭 (environment) -> 嘗試前置鏡頭 (generic) -> 報告錯誤
+         */
+        async function startWebcam() {
+            statusMessage.textContent = '嘗試啟動相機...';
+            snapshotBtn.disabled = true;
+            let finalError = null;
+            let facingModeUsed = '';
+
+            try {
+                // 嘗試 1: 後置鏡頭 (environment)
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: "environment" }, // 優先使用後置鏡頭
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                });
+                facingModeUsed = '後置';
+            } catch (err1) {
+                // 後置鏡頭失敗，嘗試前置鏡頭
+                finalError = err1;
+                console.warn("後置鏡頭啟動失敗，嘗試前置鏡頭:", err1);
+                try {
+                    // 嘗試 2: 前置鏡頭 (generic/user)
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    facingModeUsed = '前置';
+                    finalError = null; // 成功取得串流
+                } catch (err2) {
+                    finalError = err2;
+                    console.error("前置鏡頭啟動失敗:", err2);
+                }
+            }
+            
+            if (stream) {
+                // 成功處理
+                webcam.srcObject = stream;
+                webcam.onloadedmetadata = () => {
+                    webcam.play();
+                    // 在此確保成功取得的串流已啟動
+                    const track = stream.getVideoTracks()[0];
+                    if (track && track.getSettings().facingMode === 'user') {
+                        facingModeUsed = '前置';
+                    } else if (track && track.getSettings().facingMode === 'environment') {
+                        facingModeUsed = '後置';
+                    }
+                    
+                    statusMessage.textContent = `✅ 相機已啟動 (${facingModeUsed}鏡頭)。請將卡牌對準鏡頭。`;
+                    snapshotBtn.disabled = false;
+                };
+            } else if (finalError) {
+                // 錯誤處理
+                let errorMessage = `❌ 無法存取相機: ${finalError.message}`;
+
+                // 檢查是否為安全協定錯誤 (手機上常見問題)
+                if (finalError.name === "SecurityError" || window.location.protocol !== 'https:') {
+                    errorMessage = "🚨 錯誤：相機存取僅允許在 **HTTPS** 安全連線下進行。請確認您的網站使用 HTTPS。";
+                } else if (finalError.name === "NotAllowedError" || finalError.name === "PermissionDeniedError") {
+                    errorMessage = "🚫 權限被拒絕。請檢查您的瀏覽器或作業系統設定，允許此網站存取相機。";
+                }
+
+                statusMessage.textContent = errorMessage;
+                console.error("啟動相機總結錯誤:", finalError);
+            }
+        }
+
+        /**
+         * 從視訊串流中擷取一幀圖像並轉換為 Base64 (JPEG)
+         * @returns {string} Base64 編碼的 JPEG 圖像數據 (不含前綴)
+         */
+        function captureSnapshot() {
+            const context = canvas.getContext('2d');
+            
+            // 設定 Canvas 尺寸與視訊尺寸一致
+            canvas.width = webcam.videoWidth;
+            canvas.height = webcam.videoHeight;
+
+            // 在 Canvas 上繪製視訊幀
+            context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+
+            // 轉換為 JPEG Base64 格式
+            const dataURL = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // 移除 Base64 前綴 'data:image/jpeg;base64,'
+            return dataURL.split(',')[1];
+        }
+
+        // --------------------------------------------------------
+        // 4. API 呼叫邏輯 (OCR 和 Scryfall)
+        // --------------------------------------------------------
+
+        /**
+         * 使用 Gemini API 執行 OCR 辨識卡牌名稱
+         * @param {string} base64Image - Base64 編碼的卡牌圖像
+         * @returns {Promise<string>} 辨識出的卡牌名稱
+         */
+        async function performOCR(base64Image) {
+            const userPrompt = "Identify the card title in this Magic: The Gathering card image. Only return the card title text, nothing else. The card is 63x88mm in size. Return only the English name.";
+            const apiKey = ""; // Canvas will inject the key
+            const url = API_URL + apiKey;
+
+            const payload = {
+                contents: [{
+                    role: "user",
+                    parts: [
+                        { text: userPrompt },
+                        { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+                    ]
+                }],
+            };
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Gemini API HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+                if (!text) {
+                    throw new Error("API 響應中未找到有效的卡牌名稱。");
+                }
+                
+                // 清理多餘的標點符號或換行
+                const cleanText = text.replace(/[^a-zA-Z0-9\s,\-':.]/g, '').replace(/[\n\r]/g, ' ').trim();
+                return cleanText;
+
+            } catch (error) {
+                console.error("OCR 辨識失敗:", error);
+                throw new Error("無法辨識卡牌名稱，請確認影像清晰度或光線。");
+            }
+        }
+
+        /**
+         * 使用 Scryfall API 查詢卡牌的所有版本
+         * @param {string} cardName - 卡牌名稱
+         * @returns {Promise<Array<Object>>} 卡牌版本清單
+         */
+        async function searchScryfall(cardName) {
+            // Scryfall 搜尋：使用名稱並要求所有印刷版本 (unique=prints)
+            // 將卡牌名稱進行 URL 編碼
+            const query = encodeURIComponent(`!"${cardName}" unique:prints`); 
+            const url = `${SCRYFALL_API_URL}${query}`;
+
+            statusMessage.textContent = `正在 Scryfall 查詢 "${cardName}" 的所有版本...`;
+
+            try {
+                const response = await fetch(url);
+                if (response.status === 404) {
+                     // 404 表示沒有找到完全匹配的卡牌
+                     throw new Error(`找不到名稱為 "${cardName}" 的卡牌。`);
+                }
+                if (!response.ok) {
+                    throw new Error(`Scryfall API 查詢錯誤! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.object === 'list' && data.data.length > 0) {
+                    // 篩選出有 tcgplayer_id, 且沒有重複 oracle_id 的卡牌 (確保只列出主要印刷版本)
+                    // 由於我們用了 unique:prints，通常返回的都是所有版本。
+                    return data.data.filter(card => card.tcgplayer_id);
+                } else {
+                    throw new Error(`Scryfall 未找到 "${cardName}" 的任何印刷版本。`);
+                }
+
+            } catch (error) {
+                console.error("Scryfall 查詢失敗:", error);
+                throw new Error(error.message || "查詢卡牌版本時發生錯誤。");
+            }
+        }
+
+        /**
+         * 產生 MTGGoldfish 連結並顯示結果
+         * @param {Array<Object>} prints - Scryfall 返回的卡牌版本清單
+         */
+        function displayResults(cardName, prints) {
+            versionOptions.innerHTML = '';
+            cardNameDisplay.textContent = `${cardName} (共 ${prints.length} 個版本)`;
+
+            // 依照發行日期降冪排序 (最新的在前)
+            prints.sort((a, b) => new Date(b.released_at) - new Date(a.released_at));
+
+            prints.forEach(card => {
+                // 1. 取得 MTGGoldfish 連結所需的資訊
+                const setCode = card.set; // 例如: 'mrd'
+                const encodedCardName = encodeURIComponent(card.name).replace(/%20/g, '+'); // URL 編碼，空格轉為 '+'
+
+                // 2. 構造 MTGGoldfish 連結
+                // 格式: https://www.mtggoldfish.com/price/{SET_CODE}/{CARD_NAME}#{paper/online}
+                const mtgGoldfishUrl = `https://www.mtggoldfish.com/price/${setCode.toUpperCase()}/${encodedCardName}#paper`;
+
+                // 3. 建立顯示元素
+                const releaseDate = card.released_at || 'N/A';
+                const rarity = card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1); // 首字母大寫
+
+                const item = document.createElement('a');
+                item.href = mtgGoldfishUrl;
+                item.target = '_blank'; // 開啟新視窗
+                item.className = 'flex justify-between items-center p-3 bg-gray-700 rounded-lg hover:bg-yellow-600 transition duration-200 shadow-md cursor-pointer';
+
+                item.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-white font-semibold">${card.set_name} (${setCode.toUpperCase()})</span>
+                        <span class="text-xs text-gray-300">${rarity} • 發行日期: ${releaseDate}</span>
+                    </div>
+                    <span class="text-yellow-400 font-bold ml-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-6-2l6-6m0 0v4m0-4h-4" />
+                        </svg>
+                    </span>
+                `;
+
+                versionOptions.appendChild(item);
+            });
+
+            statusMessage.textContent = `✅ 成功找到 ${prints.length} 個版本。點擊連結跳轉至 MTGGoldfish。`;
+        }
+        
+        // --------------------------------------------------------
+        // 5. 主要流程控制器
+        // --------------------------------------------------------
+
+        async function handleScan() {
+            if (snapshotBtn.disabled) return;
+            
+            // 重置介面
+            versionOptions.innerHTML = '<p class="text-gray-500">正在處理中...</p>';
+            snapshotBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            try {
+                // 1. 擷取影像
+                const base64Image = captureSnapshot();
+                statusMessage.textContent = '擷取影像成功，正在進行 OCR 辨識...';
+                
+                // 2. OCR 辨識卡名
+                const cardName = await performOCR(base64Image);
+                if (!cardName || cardName.length < 3) {
+                     throw new Error("OCR 辨識結果無效，請確保卡牌標題清晰可見。");
+                }
+                statusMessage.textContent = `✨ 辨識出的卡牌名稱: ${cardName}`;
+
+                // 3. 查詢 Scryfall
+                const prints = await searchScryfall(cardName);
+                
+                // 4. 顯示結果
+                displayResults(cardName, prints);
+
+            } catch (error) {
+                const errMsg = error.message || "發生未知錯誤。";
+                statusMessage.textContent = `❌ 錯誤: ${errMsg}`;
+                cardNameDisplay.textContent = '查詢結果';
+                versionOptions.innerHTML = `<p class="text-red-400 font-medium">${errMsg}</p><p class="text-gray-500 mt-2">請調整卡牌位置並再試一次。</p>`;
+                console.error("主要掃描流程錯誤:", error);
+            } finally {
+                snapshotBtn.disabled = false;
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // --------------------------------------------------------
+        // 6. 初始化
+        // --------------------------------------------------------
+
+        // 網頁載入後啟動相機
+        window.onload = startWebcam;
+
+        // 將主要流程函數暴露給 HTML 元素
+        window.handleScan = handleScan;
+
+    </script>
+</body>
+</html>
