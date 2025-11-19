@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web NFC 讀取器 - 程式夥伴</title>
+    <!-- 引入 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定字體為 Inter */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-lg bg-white p-6 md:p-8 rounded-xl shadow-2xl border border-gray-100">
+        <h1 class="text-3xl font-extrabold text-gray-900 mb-2">Web NFC 讀取與寫入</h1>
+        <p class="text-gray-500 mb-6">點擊按鈕，然後將您的手機靠近 NFC 標籤或卡片。</p>
+
+        <!-- 狀態顯示區 -->
+        <div id="status-display" class="p-3 mb-6 rounded-lg bg-blue-100 text-blue-800 font-medium text-sm transition-all duration-300 shadow-inner">
+            等待您按下「開始讀取」或「開始寫入」...
+        </div>
+
+        <!-- 讀取功能區塊 -->
+        <button id="scan-button" class="w-full px-5 py-3 mb-4 bg-indigo-600 text-white text-lg font-semibold rounded-lg shadow-lg hover:bg-indigo-700 transition duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 active:scale-95">
+            開始讀取 NFC
+        </button>
+
+        <!-- 寫入功能區塊 -->
+        <div class="mt-8 pt-4 border-t border-gray-200">
+            <h2 class="text-xl font-bold text-gray-800 mb-3">寫入 NDEF 資料 (純文字)</h2>
+            <textarea id="write-data-input" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500" rows="3" placeholder="輸入要寫入卡片的純文字內容..."></textarea>
+            
+            <button id="write-button" class="w-full mt-3 px-5 py-3 bg-red-600 text-white text-lg font-semibold rounded-lg shadow-lg hover:bg-red-700 transition duration-300 focus:outline-none focus:ring-4 focus:ring-red-500 focus:ring-opacity-50 active:scale-95 disabled:bg-red-300">
+                開始寫入 NFC
+            </button>
+        </div>
+        
+        <!-- 讀取結果區 -->
+        <div class="mt-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-1">讀取到的資料紀錄</h2>
+            <div id="results-log" class="space-y-4">
+                <p class="text-gray-500 text-sm italic">目前沒有紀錄。</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 獲取 DOM 元素
+        const scanButton = document.getElementById('scan-button');
+        const writeButton = document.getElementById('write-button');
+        const writeDataInput = document.getElementById('write-data-input');
+        const statusDisplay = document.getElementById('status-display');
+        const resultsLog = document.getElementById('results-log');
+        let nfcReader = null; // 用來儲存 NDEFReader 實例
+
+        // API Key (在此應用中不使用 API Key，但為遵守規範保留)
+        const apiKey = ""; 
+
+        /**
+         * 更新狀態訊息和樣式
+         * @param {string} message 要顯示的訊息
+         * @param {'info' | 'success' | 'warning' | 'error'} type 訊息類型
+         */
+        function updateStatus(message, type = 'info') {
+            const classes = {
+                'info': 'bg-blue-100 text-blue-800',
+                'success': 'bg-green-100 text-green-800',
+                'warning': 'bg-yellow-100 text-yellow-800',
+                'error': 'bg-red-100 text-red-800'
+            };
+            
+            // 重設樣式並應用新的樣式
+            statusDisplay.className = `p-3 mb-6 rounded-lg font-medium text-sm transition-all duration-300 shadow-inner ${classes[type] || classes.info}`;
+            statusDisplay.textContent = message;
+        }
+
+        /**
+         * 將讀取到的紀錄內容顯示在結果區
+         * @param {string} title 紀錄標題
+         * @param {string} content 紀錄內容
+         */
+        function appendResult(title, content) {
+            const logItem = document.createElement('div');
+            logItem.className = 'p-3 bg-gray-50 border border-gray-200 rounded-md shadow-sm';
+            logItem.innerHTML = `
+                <p class="text-sm font-semibold text-gray-700">${title}</p>
+                <code class="block mt-1 p-2 text-xs bg-white border border-dashed border-gray-300 rounded overflow-x-auto whitespace-pre-wrap">${content}</code>
+            `;
+            resultsLog.prepend(logItem); // 新的紀錄放在最前面
+        }
+
+        /**
+         * 嘗試將 NDEF 紀錄的 payload (有效負載) 轉換為可讀的字串
+         * @param {DataView} dataView NDEF 紀錄的資料視圖
+         * @param {string} recordType 紀錄類型
+         * @returns {string} 轉換後的字串
+         */
+        function getPayloadAsString(dataView, recordType) {
+            try {
+                const buffer = new Uint8Array(dataView.buffer);
+                
+                // 處理 Text 紀錄 (TNF 1, RTD 'T')
+                if (recordType === 'text/plain') {
+                    // Text 紀錄的第一個位元組是狀態位元組 (包含編碼和語言長度)
+                    const languageCodeLength = buffer[0] & 0x3F; // 取得語言代碼長度
+                    const textContent = new TextDecoder().decode(buffer.slice(1 + languageCodeLength));
+                    return `Text: "${textContent}"`;
+                }
+
+                // 處理 URL 紀錄 (TNF 1, RTD 'U')
+                if (recordType === 'text/uri') {
+                    // URL 紀錄的第一個位元組是 URI 識別碼代碼 (Prefix)
+                    const prefixCode = buffer[0];
+                    const urlSuffix = new TextDecoder().decode(buffer.slice(1));
+                    
+                    // NDEF URL Prefix 對應表 (僅列舉常見的)
+                    const prefixes = [
+                        "", "http://www.", "https://www.", "http://", "https://", 
+                        "tel:", "mailto:", "ftp://anonymous:anonymous@", "ftp://ftp."
+                    ];
+                    
+                    const url = prefixes[prefixCode] !== undefined ? prefixes[prefixCode] + urlSuffix : `(未知前綴代碼 ${prefixCode})` + urlSuffix;
+                    return `URL: "${url}"`;
+                }
+                
+                // 處理其他類型 (例如 JSON, 其他 MIME 類型)
+                const text = new TextDecoder('utf-8').decode(buffer);
+                return text;
+
+            } catch (error) {
+                console.error("Payload 解析錯誤:", error);
+                return `[無法解析的資料] 錯誤: ${error.message}`;
+            }
+        }
+
+        /**
+         * 處理成功的 NFC 讀取事件
+         * @param {NDEFReadingEvent} event 讀取事件物件
+         */
+        function handleReading(event) {
+            updateStatus('✅ 讀取成功！正在解析資料...', 'success');
+            
+            // 清空舊的紀錄
+            resultsLog.innerHTML = '';
+            
+            const message = event.message;
+            let recordCount = 0;
+
+            // 迭代 NDEF 訊息中的所有紀錄
+            for (const record of message.records) {
+                recordCount++;
+                let payloadString = '無法解析 (非 Text/URL/MIME 類型或為空)';
+                
+                // 檢查是否有 payload (有效負載)
+                if (record.data) {
+                    // 紀錄的類型 (type) 通常會是 'text/plain', 'text/uri', 或 MIME 類型 'application/json' 等
+                    const recordType = record.recordType === 'mime' ? record.mediaType : record.recordType;
+                    
+                    // 使用 DataView 處理二進制資料
+                    const dataView = new DataView(record.data.buffer);
+                    payloadString = getPayloadAsString(dataView, recordType);
+                }
+
+                appendResult(
+                    `紀錄 ${recordCount} (類型: ${record.recordType})`,
+                    `
+                    **類型細節**: ${record.recordType === 'mime' ? record.mediaType : record.recordType}\n
+                    **記錄 ID**: ${record.id || '無'}\n
+                    **解析內容**: ${payloadString}`
+                );
+            }
+
+            if (recordCount === 0) {
+                 appendResult(
+                    `讀取完成`,
+                    `標籤已讀取，但 NDEF 訊息中沒有任何可用的紀錄 (0 紀錄)。`
+                );
+            }
+
+            // 讀取成功後，停止掃描 (可以手動再次點擊開始)
+            stopScan();
+        }
+
+        /**
+         * 停止 NFC 掃描 (用於讀取功能)
+         */
+        function stopScan() {
+             if (nfcReader) {
+                // 移除 visibilitychange 監聽器
+                document.removeEventListener("visibilitychange", stopScan, { once: true });
+                nfcReader = null; 
+            }
+            scanButton.textContent = '重新開始讀取 NFC';
+            scanButton.disabled = false;
+        }
+
+        /**
+         * 啟動 NFC 讀取流程
+         */
+        async function startNFCReading() {
+            // 檢查 Web NFC API 支援性
+            if (!('NDEFReader' in window)) {
+                updateStatus('🚫 此瀏覽器或連線協定不支援 Web NFC API。請確保：\n1. 您使用最新版的 Android Chrome 或 Edge 瀏覽器。\n2. 網頁是透過 **HTTPS** 存取的。', 'error');
+                return;
+            }
+
+            // 禁用讀取按鈕並更新狀態
+            scanButton.textContent = '正在等待感應... (點擊停止)';
+            scanButton.disabled = true;
+
+            // 允許使用者點擊已禁用的按鈕來停止掃描 (重新啟用按鈕)
+            scanButton.onclick = stopScan;
+
+            // 清空舊的結果
+            resultsLog.innerHTML = '<p class="text-gray-500 text-sm italic">請靠近 NFC 標籤以進行讀取...</p>';
+            
+            try {
+                // 建立 NDEFReader 實例
+                nfcReader = new NDEFReader();
+
+                // 註冊事件處理器
+                nfcReader.onreading = handleReading;
+                nfcReader.onerror = (error) => {
+                    updateStatus(`❌ 讀取時發生錯誤: ${error.message}.`, 'error');
+                    console.error("NFC 讀取錯誤:", error);
+                    stopScan();
+                };
+
+                // 啟動掃描
+                await nfcReader.scan(); 
+
+                // 首次成功呼叫 scan() 意味著 NFC 讀取器已準備就緒
+                updateStatus('🔔 讀取器已啟動。請將手機靠近卡片...', 'info');
+
+                // 為了用戶體驗，當使用者切換應用程式或螢幕關閉時，最好停止掃描
+                document.addEventListener("visibilitychange", stopScan, { once: true });
+
+            } catch (error) {
+                // 處理權限被拒絕或裝置未開啟 NFC 等錯誤
+                updateStatus(`❌ 啟動 NFC 失敗: ${error.message}. 請檢查您的裝置設定和權限。`, 'error');
+                scanButton.textContent = '重新開始讀取 NFC';
+                scanButton.disabled = false;
+            }
+        }
+        
+        /**
+         * 啟動 NFC 寫入流程
+         */
+        async function writeNFC() {
+            if (!('NDEFReader' in window)) {
+                updateStatus('🚫 此瀏覽器或連線協定不支援 Web NFC API。請確認環境。', 'error');
+                return;
+            }
+
+            const dataToWrite = writeDataInput.value.trim();
+            if (!dataToWrite) {
+                updateStatus('⚠️ 請在文字框中輸入要寫入的內容。', 'warning');
+                return;
+            }
+
+            // 禁用寫入按鈕
+            writeButton.textContent = '正在等待感應以寫入...';
+            writeButton.disabled = true;
+
+            try {
+                // 1. 建立 NDEFReader 實例 (用於寫入)
+                const writer = new NDEFReader();
+                
+                // 2. 建立要寫入的 NDEF 訊息 (設定為純文字紀錄)
+                const message = {
+                    records: [{
+                        recordType: "text",
+                        data: dataToWrite,
+                        // 語言代碼，例如 'zh-TW'
+                        lang: 'zh-TW' 
+                    }]
+                };
+
+                // 3. 呼叫 write() 啟動寫入流程
+                updateStatus('📢 寫入器已啟動。請將手機靠近卡片進行寫入...', 'info');
+                
+                await writer.write(message);
+
+                updateStatus(`✅ 寫入成功！資料 "${dataToWrite.substring(0, 20)}..." 已儲存到 NFC 標籤上。`, 'success');
+                // 寫入成功後，清空輸入框，保持介面整潔
+                writeDataInput.value = '';
+
+            } catch (error) {
+                let errorMessage = `❌ 寫入失敗: ${error.message}`;
+
+                // **這是判斷是否唯讀的關鍵：NotWritableError**
+                if (error.name === 'NotWritableError') {
+                    errorMessage = '🔒 寫入失敗: 此 NFC 標籤是**唯讀 (Read-Only)** 狀態，無法寫入或重新寫入。';
+                } else if (error.name === 'NotSupportedError') {
+                    errorMessage = '🚫 寫入失敗: 此標籤類型不支援 NDEF 寫入。';
+                } else if (error.name === 'SecurityError') {
+                    errorMessage = '⚠️ 寫入失敗: 必須透過 **HTTPS** 存取網頁，並確保 NFC 權限已授予。';
+                } else if (error.name === 'AbortError') {
+                    // 通常是使用者移動手機過快或取消了操作
+                    errorMessage = '🛑 寫入中止: 可能是您移動手機過快，請重試。';
+                }
+                
+                updateStatus(errorMessage, 'error');
+                console.error("NFC 寫入錯誤:", error);
+
+            } finally {
+                // 重設寫入按鈕狀態
+                writeButton.textContent = '開始寫入 NFC';
+                writeButton.disabled = false;
+            }
+        }
+        
+        // 初始化時，設定讀取和寫入按鈕的點擊事件
+        scanButton.onclick = startNFCReading;
+        writeButton.onclick = writeNFC;
+
+        // 首次檢查支援性並更新初始狀態
+        window.onload = () => {
+             if ('NDEFReader' in window) {
+                updateStatus('✅ Web NFC API 已被瀏覽器支援。請開始讀取或寫入。', 'success');
+            } else {
+                updateStatus('🚫 此瀏覽器不支援 Web NFC API。請使用最新版的 Android Chrome 或 Edge 瀏覽器並透過 HTTPS 存取。', 'error');
+                scanButton.disabled = true;
+                writeButton.disabled = true;
+            }
+        };
+
+    </script>
+</body>
+</html>
