@@ -157,70 +157,7 @@
         installButton.style.display = 'none';
     });
 </script>
-    <script type="module">
-        // --- 導入 Firebase SDK (利用 Vite 直接編譯與打包) ---
-        import { initializeApp } from "firebase/app";
-        import { getFirestore, doc, getDoc, setDoc, getDocFromServer } from "firebase/firestore";
-
-        // ==========================================
-        // 【Firebase API 設定資訊預留區】
-        // ==========================================
-        // 提示說明：如果您將本專案複製/下載到其他環境執行，可以直接在此處填入或修改自訂的 Firebase API 資訊
-        const firebaseConfig = {
-            projectId: "gen-lang-client-0974479125",
-            appId: "1:410344326840:web:a78a3e71c15d72d032964d",
-            apiKey: "AIzaSyBVECDH-BsDRZfCXFYl2G67o_TzogTqnGA",
-            authDomain: "gen-lang-client-0974479125.firebaseapp.com",
-            firestoreDatabaseId: "ai-studio-dbf0fc94-ab3b-4dd0-9087-446439839304",
-            storageBucket: "gen-lang-client-0974479125.firebasestorage.app",
-            messagingSenderId: "410344326840"
-        };
-
-        // 初始化 Firebase 與 Firestore 資料庫
-        const firebaseApp = initializeApp(firebaseConfig);
-        const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || "(default)");
-
-        // --- Firebase 錯誤統一處理器 (符合 Pillar 3 標準) ---
-        const OperationType = {
-            CREATE: 'create',
-            UPDATE: 'update',
-            DELETE: 'delete',
-            LIST: 'list',
-            GET: 'get',
-            WRITE: 'write',
-        };
-
-        function handleFirestoreError(error, operationType, path) {
-            const errInfo = {
-                error: error instanceof Error ? error.message : String(error),
-                authInfo: {
-                    userId: null,
-                    email: null,
-                    emailVerified: null,
-                    isAnonymous: null,
-                    tenantId: null,
-                    providerInfo: []
-                },
-                operationType,
-                path
-            };
-            console.error('Firestore 權限或連線錯誤: ', JSON.stringify(errInfo));
-            throw new Error(JSON.stringify(errInfo));
-        }
-
-        // --- 測試資料庫連線 (Pillar 連線驗證規範) ---
-        async function testFirestoreConnection() {
-            try {
-                await getDocFromServer(doc(db, 'test', 'connection'));
-                console.log('[Firebase Firestore] 雲端連線測試完成');
-            } catch (error) {
-                if (error instanceof Error && error.message.includes('offline')) {
-                    console.error("[Firebase] 偵測到用戶端離線，請檢查您的 Firebase configuration 設定值。");
-                }
-            }
-        }
-        testFirestoreConnection();
-
+    <script>
         // 【新增 Service Worker 註冊碼】
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -620,124 +557,76 @@
             async function fetchTrainRoute(trainNo, fromId, toId, depTime, arrTime, searchDate) {
                 const formattedDate = searchDate ? searchDate : new Date().toISOString().split('T')[0];
                 const cacheKey = `${trainNo}_${formattedDate}`;
-                
-                // 1. 檢查記憶體快取 (InMemory Cache)
                 if (globalRouteCache[cacheKey]) {
-                    console.log(`[InMemory Cache] 記憶體快取命中：${cacheKey}`);
+                    console.log(`[Cache Hit] 使用快取的車次路線：${cacheKey}`);
                     return globalRouteCache[cacheKey];
                 }
-
-                // 2. 檢查 Firebase Firestore 雲端快取
-                const routeDocId = `${trainNo}_${formattedDate}`;
-                try {
-                    console.log(`[Firebase Firestore] 正在查詢雲端快取: ${routeDocId}`);
-                    // 根據 Pillar 與 Skill 指令：使用 doc 建立參考，並透過 getDoc 進行查詢。
-                    const docRef = doc(db, 'train_routes', routeDocId);
-                    const docSnap = await getDoc(docRef);
-                    
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        const savedAt = data.savedAt || 0;
-                        const threeMonthsMs = 90 * 24 * 60 * 60 * 1000; // 約三個月 (90天)
-                        const isExpired = (Date.now() - savedAt) > threeMonthsMs;
-
-                        if (!isExpired) {
-                            console.log(`[Firebase Firestore Cache] 快取命中且未過期! 建立於: ${data.savedAtHuman || '未知'}`);
-                            globalRouteCache[cacheKey] = data.stops;
-                            return data.stops;
-                        } else {
-                            console.log(`[Firebase Firestore Cache] 快取已過期 (大於三個月)，準備從網際網路更新數據...`);
-                        }
-                    } else {
-                        console.log(`[Firebase Firestore Cache] 快取未命中，需拉取 API 資料...`);
-                    }
-                } catch (err) {
-                    // 依據對應規範，執行錯誤攔截與錯誤處理
-                    handleFirestoreError(err, OperationType.GET, `train_routes/${routeDocId}`);
-                }
-
-                // --- 3. 獲取底層資料 (從 API 或模擬產生器) ---
-                let finalStops = null;
-
+                
                 if (!isKeyProvided()) {
-                    console.log(`[系統提示] 未設定 TDX API 金鑰，使用高擬真模擬資料...`);
-                    finalStops = generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate);
-                } else {
-                    const todayStr = new Date().toISOString().split('T')[0];
-                    const isSearchingToday = (formattedDate === todayStr);
+                    const mockRoute = generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate);
+                    globalRouteCache[cacheKey] = mockRoute;
+                    return mockRoute;
+                }
+                
+                const todayStr = new Date().toISOString().split('T')[0];
+                const isSearchingToday = (formattedDate === todayStr);
 
-                    try {
-                        const token = await getTdxAccessToken();
-                        
-                        // 定義多個可能的 TDX API 端點順序 (v2 乘車日、v3 TrainDate、今日專用等)，自我修復並確保一定能取得正確資料
-                        const attempts = [];
+                try {
+                    const token = await getTdxAccessToken();
+                    
+                    // 定義多個可能的 TDX API 端點順序 (v2 乘車日、v3 TrainDate、今日專用等)，自我修復並確保一定能取得正確資料
+                    const attempts = [];
 
-                        // 嘗試 1: 若為今日，優先嘗試最火速、高成功率的 v2 Today 專屬 API
-                        if (isSearchingToday) {
-                            attempts.push({
-                                name: "V2_Today_TrainNo",
-                                url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/Today/TrainNo/${trainNo}?$format=JSON`,
-                                parse: (data) => {
-                                    if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
-                                    if (data && data.DailyTimetables && data.DailyTimetables.length > 0 && data.DailyTimetables[0].StopTimes) return data.DailyTimetables[0].StopTimes;
-                                    return null;
-                                }
-                            });
+                    // 嘗試 1: 若為今日，優先嘗試最火速、高成功率的 v2 Today 專屬 API
+                    if (isSearchingToday) {
+                        attempts.push({
+                            name: "V2_Today_TrainNo",
+                            url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/Today/TrainNo/${trainNo}?$format=JSON`,
+                            parse: (data) => {
+                                if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
+                                if (data && data.DailyTimetables && data.DailyTimetables.length > 0 && data.DailyTimetables[0].StopTimes) return data.DailyTimetables[0].StopTimes;
+                                return null;
+                            }
+                        });
+                    }
+
+                    // 嘗試 2: V2 經典的 TrainNo & TrainDate (直接斜線串接，部分 TDX 平台或舊版使用的隱藏結構)
+                    attempts.push({
+                        name: "V2_TrainNo_Date_Direct",
+                        url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/${formattedDate}?$format=JSON`,
+                        parse: (data) => {
+                            if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
+                            return null;
                         }
+                    });
 
-                        // 嘗試 2: V2 經典的 TrainNo & TrainDate (直接斜線串接，部分 TDX 平台或舊版使用的隱藏結構)
-                        attempts.push({
-                            name: "V2_TrainNo_Date_Direct",
-                            url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/${formattedDate}?$format=JSON`,
-                            parse: (data) => {
-                                if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
-                                return null;
-                            }
-                        });
-
-                        // 嘗試 3: V2 官方的 TrainNo/RideDate 端點
-                        attempts.push({
-                            name: "V2_TrainNo_RideDate",
-                            url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/RideDate/${formattedDate}?$format=JSON`,
-                            parse: (data) => {
-                                if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
-                                return null;
-                            }
-                        });
-
-                        // 嘗試 4: V2 官方的 TrainNo/TrainDate 變形格式 (有些文件作 TrainDate)
-                        attempts.push({
-                            name: "V2_TrainNo_TrainDate",
-                            url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/TrainDate/${formattedDate}?$format=JSON`,
-                            parse: (data) => {
-                                if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
-                                return null;
-                            }
-                        });
-
-                        // 嘗試 5: V3 Today 專用車次 API (若為今日)
-                        if (isSearchingToday) {
-                            attempts.push({
-                                name: "V3_Today_TrainNo",
-                                url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/Today/TrainNo/${trainNo}?$format=JSON`,
-                                parse: (data) => {
-                                    if (data && data.DailyTimetables && data.DailyTimetables.length > 0 && data.DailyTimetables[0].StopTimes) {
-                                        return data.DailyTimetables[0].StopTimes;
-                                    }
-                                    if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) {
-                                        return data[0].StopTimes;
-                                    }
-                                    return null;
-                                }
-                            });
+                    // 嘗試 3: V2 官方的 TrainNo/RideDate 端點
+                    attempts.push({
+                        name: "V2_TrainNo_RideDate",
+                        url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/RideDate/${formattedDate}?$format=JSON`,
+                        parse: (data) => {
+                            if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
+                            return null;
                         }
+                    });
 
-                        // 嘗試 6: V3 依 OData 語法過濾 TrainDate
+                    // 嘗試 4: V2 官方的 TrainNo/TrainDate 變形格式 (有些文件作 TrainDate)
+                    attempts.push({
+                        name: "V2_TrainNo_TrainDate",
+                        url: `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/TrainNo/${trainNo}/TrainDate/${formattedDate}?$format=JSON`,
+                        parse: (data) => {
+                            if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) return data[0].StopTimes;
+                            return null;
+                        }
+                    });
+
+                    // 嘗試 5: V3 Today 專用車次 API (若為今日)
+                    if (isSearchingToday) {
                         attempts.push({
-                            name: "V3_TrainNo_Filtered_OData",
-                            url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/TrainNo/${trainNo}?$filter=TrainDate eq '${formattedDate}'&$format=JSON`,
+                            name: "V3_Today_TrainNo",
+                            url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/Today/TrainNo/${trainNo}?$format=JSON`,
                             parse: (data) => {
-                                if (data && data.DailyTimetables && data.DailyTimetables.length > 0) {
+                                if (data && data.DailyTimetables && data.DailyTimetables.length > 0 && data.DailyTimetables[0].StopTimes) {
                                     return data.DailyTimetables[0].StopTimes;
                                 }
                                 if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) {
@@ -746,85 +635,79 @@
                                 return null;
                             }
                         });
+                    }
 
-                        // 嘗試 7: V3 車次總表 (不帶過濾)，並在前端 JS 過濾 TrainDate
-                        attempts.push({
-                            name: "V3_TrainNo_Total_Client_Filter",
-                            url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/TrainNo/${trainNo}?$format=JSON`,
-                            parse: (data) => {
-                                let timetables = [];
-                                if (data && data.DailyTimetables) {
-                                    timetables = data.DailyTimetables;
-                                } else if (Array.isArray(data)) {
-                                    timetables = data;
-                                }
-                                const match = timetables.find(t => {
-                                    const tDate = t.TrainDate || (t.DailyTrainInfo && t.DailyTrainInfo.TrainDate);
-                                    return tDate === formattedDate;
-                                });
-                                if (match && match.StopTimes) return match.StopTimes;
-                                if (timetables.length > 0 && timetables[0].StopTimes) return timetables[0].StopTimes;
-                                return null;
+                    // 嘗試 6: V3 依 OData 語法過濾 TrainDate
+                    attempts.push({
+                        name: "V3_TrainNo_Filtered_OData",
+                        url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/TrainNo/${trainNo}?$filter=TrainDate eq '${formattedDate}'&$format=JSON`,
+                        parse: (data) => {
+                            if (data && data.DailyTimetables && data.DailyTimetables.length > 0) {
+                                return data.DailyTimetables[0].StopTimes;
                             }
-                        });
-
-                        // 順序嘗試發送請求，直到成功解析為止
-                        for (const attempt of attempts) {
-                            try {
-                                console.log(`[TDX 路線圖連線] 嘗試 ${attempt.name} ...`, attempt.url);
-                                const response = await fetch(attempt.url, {
-                                    headers: { 'Authorization': `Bearer ${token}` }
-                                });
-                                
-                                if (response.ok) {
-                                    const data = await response.json();
-                                    const stopTimes = attempt.parse(data);
-                                    if (stopTimes && stopTimes.length > 0) {
-                                        console.log(`[TDX 路線圖連線] 成功！使用來源: ${attempt.name}，站點數: ${stopTimes.length}`);
-                                        finalStops = stopTimes;
-                                        break;
-                                    }
-                                } else {
-                                    console.warn(`[TDX 路線圖連線] ${attempt.name} 連線失敗，代碼: ${response.status}`);
-                                }
-                            } catch (attemptErr) {
-                                console.warn(`[TDX 路線圖連線] ${attempt.name} 發生異常:`, attemptErr);
+                            if (Array.isArray(data) && data.length > 0 && data[0].StopTimes) {
+                                return data[0].StopTimes;
                             }
+                            return null;
                         }
+                    });
 
-                    } catch (error) {
-                        console.error("路線圖主要 API 分送與連線錯誤:", error);
+                    // 嘗試 7: V3 車次總表 (不帶過濾)，並在前端 JS 過濾 TrainDate
+                    attempts.push({
+                        name: "V3_TrainNo_Total_Client_Filter",
+                        url: `https://tdx.transportdata.tw/api/basic/v3/Rail/TRA/DailyTimetable/TrainNo/${trainNo}?$format=JSON`,
+                        parse: (data) => {
+                            let timetables = [];
+                            if (data && data.DailyTimetables) {
+                                timetables = data.DailyTimetables;
+                            } else if (Array.isArray(data)) {
+                                timetables = data;
+                            }
+                            const match = timetables.find(t => {
+                                const tDate = t.TrainDate || (t.DailyTrainInfo && t.DailyTrainInfo.TrainDate);
+                                return tDate === formattedDate;
+                            });
+                            if (match && match.StopTimes) return match.StopTimes;
+                            if (timetables.length > 0 && timetables[0].StopTimes) return timetables[0].StopTimes;
+                            return null;
+                        }
+                    });
+
+                    // 順序嘗試發送請求，直到成功解析為止
+                    for (const attempt of attempts) {
+                        try {
+                            console.log(`[TDX 路線圖連線] 嘗試 ${attempt.name} ...`, attempt.url);
+                            const response = await fetch(attempt.url, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            
+                            if (response.ok) {
+                                const data = await response.json();
+                                const stopTimes = attempt.parse(data);
+                                if (stopTimes && stopTimes.length > 0) {
+                                    console.log(`[TDX 路線圖連線] 成功！使用來源: ${attempt.name}，站點數: ${stopTimes.length}`);
+                                    globalRouteCache[cacheKey] = stopTimes;
+                                    return stopTimes;
+                                }
+                            } else {
+                                console.warn(`[TDX 路線圖連線] ${attempt.name} 連線失敗，代碼: ${response.status}`);
+                            }
+                        } catch (attemptErr) {
+                            console.warn(`[TDX 路線圖連線] ${attempt.name} 發生異常:`, attemptErr);
+                        }
                     }
 
-                    // 備選回退方案
-                    if (!finalStops) {
-                        console.warn("所有 TDX 路線圖 API 鏈皆失敗或無符合當日資料，將啟用高擬真模擬資料。");
-                        finalStops = generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate);
-                    }
+                    console.warn("所有 TDX 路線圖 API 鏈皆失敗或無符合當日資料，將啟用高擬真模擬資料。");
+                    const mockRoute = generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate);
+                    globalRouteCache[cacheKey] = mockRoute;
+                    return mockRoute;
+
+                } catch (error) {
+                    console.error("路線圖主流程錯誤:", error);
+                    const mockRoute = generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate);
+                    globalRouteCache[cacheKey] = mockRoute;
+                    return mockRoute;
                 }
-
-                // 4. 將新取得的路線寫入 Firestore 雲端快取與記憶體快取
-                if (finalStops && finalStops.length > 0) {
-                    globalRouteCache[cacheKey] = finalStops;
-                    
-                    try {
-                        console.log(`[Firebase Firestore] 正在更新快取至雲端... DocID: ${routeDocId}`);
-                        const cachePayload = {
-                            trainNo: String(trainNo),
-                            date: String(formattedDate),
-                            stops: finalStops,
-                            savedAt: Date.now(),
-                            savedAtHuman: new Date().toISOString()
-                        };
-                        const docRef = doc(db, 'train_routes', routeDocId);
-                        await setDoc(docRef, cachePayload);
-                        console.log(`[Firebase Firestore] 雲端快取寫入成功!`);
-                    } catch (err) {
-                        handleFirestoreError(err, OperationType.WRITE, `train_routes/${routeDocId}`);
-                    }
-                }
-
-                return finalStops;
             }
 
             function generateMockRoute(trainNo, fromId, toId, depTime, arrTime, searchDate) {
